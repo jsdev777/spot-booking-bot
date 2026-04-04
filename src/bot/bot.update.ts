@@ -17,6 +17,7 @@ import {
   UserDailyBookingLimitExceededError,
 } from '../booking/booking.errors';
 import { CommunityService } from '../community/community.service';
+import { TelegramMembersService } from '../community/telegram-members.service';
 import { ResourceService } from '../community/resource.service';
 import { SETUP_TIMEZONES } from '../community/setup.constants';
 import { ResourceVisibility, SportKindCode } from '../generated/prisma/client';
@@ -46,7 +47,7 @@ const KIND_LABEL_TO_CODE = new Map<string, SportKindCode>(
 /** Подписи reply keyboard (должны совпадать с обработчиком @On('text')). */
 const MENU_KB_BOOK = 'Забронировать';
 const MENU_KB_LIST = 'Мои бронирования';
-const MENU_KB_GRID = 'Сетка дня';
+const MENU_KB_GRID = 'Расписание дня';
 /** Reply keyboard: текст «Настройки» + команда /setup обрабатываются одинаково. */
 const MENU_KB_SETUP = 'Настройки';
 const MENU_KB_BACK = '« Назад';
@@ -59,6 +60,9 @@ const WH_KB_DAY_CLOSED = 'Выходной';
 const WH_KB_DAY_SET_HOURS = 'Задать часы';
 const MENU_DAY_TODAY = 'Сегодня';
 const MENU_DAY_TOMORROW = 'Завтра';
+/** Шаг брони: ищете партнёров. */
+const BOOK_KB_LOOKING_YES = 'Да';
+const BOOK_KB_LOOKING_NO = 'Нет';
 
 /** Участнику при закрытом окне бронирования (сразу после «Забронировать» и перед выбором дня). */
 const MSG_NO_SLOTS_BOOKING_WINDOW = 'Сейчас бронирование не доступно.';
@@ -154,6 +158,7 @@ export class BotUpdate {
     private readonly booking: BookingService,
     private readonly community: CommunityService,
     private readonly resources: ResourceService,
+    private readonly telegramMembers: TelegramMembersService,
   ) {}
 
   private sk(ctx: Context): string {
@@ -275,12 +280,33 @@ export class BotUpdate {
     return this.resources.listForChat(chatId, { onlyActive: !admin });
   }
 
-  /** Меню внизу экрана (reply keyboard). У админов группы — «Настройки». */
-  private async mainMenuReplyMarkup(ctx: Context) {
+  /**
+   * Reply-меню в группе для конкретного пользователя (например новый участник по chat_member).
+   * «Настройки» — только если этот пользователь админ группы.
+   */
+  private async mainMenuReplyMarkupForChatUser(
+    telegram: Context['telegram'],
+    chatId: bigint,
+    forUserId: number,
+  ) {
     const rows: string[][] = [[MENU_KB_BOOK], [MENU_KB_LIST], [MENU_KB_GRID]];
-    if (isGroupChat(ctx) && ctx.from && (await isGroupAdmin(ctx))) {
+    if (await isUserAdminOfGroupChat(telegram, chatId, forUserId)) {
       rows.push([MENU_KB_SETUP]);
     }
+    rows.push([MENU_KB_MAIN]);
+    return Markup.keyboard(rows).resize().persistent(true);
+  }
+
+  /** Меню внизу экрана (reply keyboard). У админов группы — «Настройки». */
+  private async mainMenuReplyMarkup(ctx: Context) {
+    if (isGroupChat(ctx) && ctx.from) {
+      return this.mainMenuReplyMarkupForChatUser(
+        ctx.telegram,
+        BigInt(ctx.chat!.id),
+        ctx.from.id,
+      );
+    }
+    const rows: string[][] = [[MENU_KB_BOOK], [MENU_KB_LIST], [MENU_KB_GRID]];
     rows.push([MENU_KB_MAIN]);
     return Markup.keyboard(rows).resize().persistent(true);
   }
@@ -317,6 +343,21 @@ export class BotUpdate {
     const rows = minutes.map((m) => [this.durationLabel(m)]);
     rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
     return Markup.keyboard(rows).resize().persistent(true);
+  }
+
+  private lookingForPlayersReplyMarkup() {
+    return Markup.keyboard([
+      [BOOK_KB_LOOKING_YES, BOOK_KB_LOOKING_NO],
+      [MENU_KB_BACK, MENU_KB_MAIN],
+    ])
+      .resize()
+      .persistent(true);
+  }
+
+  private playersCountPromptReplyMarkup() {
+    return Markup.keyboard([[MENU_KB_BACK, MENU_KB_MAIN]])
+      .resize()
+      .persistent(true);
   }
 
   /** Текст кнопки в «Мои бронирования» (лимит Telegram — 64 символа). */
@@ -365,7 +406,7 @@ export class BotUpdate {
     return Markup.keyboard(rows).resize().persistent(true);
   }
 
-  /** Подпись кнопки выбора площадки: имя и при необходимости адрес в скобках (/setup, бронь, сетка). */
+  /** Подпись кнопки выбора площадки: имя и при необходимости адрес в скобках (/setup, бронь, расписание). */
   private resourcePickButtonLabel(
     r: {
       name: string;
@@ -569,6 +610,78 @@ export class BotUpdate {
         );
         return;
       }
+      case 'book_looking': {
+        const starts = await this.booking.getAvailableStartSlots({
+          resourceId: s.resourceId,
+          telegramChatId: chatId,
+          dayOffset: s.dayOffset,
+          telegramGroupAdmin: admin,
+        });
+        if (starts.length === 0) {
+          this.resetMenuState(ctx);
+          await ctx.reply(
+            'Нет свободных интервалов.',
+            await this.mainMenuReplyMarkup(ctx),
+          );
+          return;
+        }
+        const durs = await this.booking.getAvailableDurationsMinutes({
+          resourceId: s.resourceId,
+          telegramChatId: chatId,
+          dayOffset: s.dayOffset,
+          startHour: s.hour,
+          startMinute: s.startMinute,
+          telegramGroupAdmin: admin,
+          telegramUserId: ctx.from!.id,
+        });
+        if (durs.length === 0) {
+          this.setMenuState(ctx, {
+            t: 'book_day',
+            resourceId: s.resourceId,
+            ...(s.sportKindCode !== undefined
+              ? { sportKindCode: s.sportKindCode }
+              : {}),
+          });
+          await ctx.reply(
+            'На это время нет подходящей длительности. Выберите другой день.',
+            this.dayPickReplyMarkup(),
+          );
+          return;
+        }
+        this.setMenuState(ctx, {
+          t: 'book_dur',
+          resourceId: s.resourceId,
+          dayOffset: s.dayOffset,
+          hour: s.hour,
+          startMinute: s.startMinute,
+          ...(s.sportKindCode !== undefined
+            ? { sportKindCode: s.sportKindCode }
+            : {}),
+        });
+        await ctx.reply(
+          `Начало ${String(s.hour).padStart(2, '0')}:${String(s.startMinute).padStart(2, '0')} — выберите длительность:`,
+          this.durationPickReplyMarkup(durs),
+        );
+        return;
+      }
+      case 'book_players': {
+        this.setMenuState(ctx, {
+          t: 'book_looking',
+          resourceId: s.resourceId,
+          dayOffset: s.dayOffset,
+          hour: s.hour,
+          startMinute: s.startMinute,
+          durationMinutes: s.durationMinutes,
+          ...(s.sportKindCode !== undefined
+            ? { sportKindCode: s.sportKindCode }
+            : {}),
+        });
+        await ctx.reply(
+          'Ищете партнёров для этой брони?',
+          this.lookingForPlayersReplyMarkup(),
+        );
+        return;
+      }
       case 'grid_day': {
         const comm = await this.community.findByTelegramChatId(chatId);
         if (!comm) {
@@ -582,7 +695,7 @@ export class BotUpdate {
           this.setMenuState(ctx, { t: 'grid_res' });
           const list = await this.resourcesForBookingUi(chatId, admin);
           await ctx.reply(
-            'Сетка — выберите площадку:',
+            'Расписание — выберите площадку:',
             this.resourcePickReplyMarkup(list, admin),
           );
         }
@@ -674,13 +787,13 @@ export class BotUpdate {
           t: 'grid_day',
           resourceId: visible[0].id,
         });
-        await ctx.reply('Сетка для какого дня?', this.dayPickReplyMarkup());
+        await ctx.reply('Расписание для какого дня?', this.dayPickReplyMarkup());
         return;
       }
       this.setMenuState(ctx, { t: 'grid_res' });
       const list = await this.resourcesForBookingUi(chatId, admin);
       await ctx.reply(
-        'Сетка — выберите площадку:',
+        'Расписание — выберите площадку:',
         this.resourcePickReplyMarkup(list, admin),
       );
     }
@@ -774,7 +887,7 @@ export class BotUpdate {
       return;
     }
     this.setMenuState(ctx, { t: 'grid_day', resourceId: r.id });
-    await ctx.reply('Сетка для какого дня?', this.dayPickReplyMarkup());
+    await ctx.reply('Расписание для какого дня?', this.dayPickReplyMarkup());
   }
 
   private async handleBookDayPick(
@@ -888,46 +1001,50 @@ export class BotUpdate {
     );
   }
 
-  private async handleBookDurPick(
+  private async finalizeGroupBooking(
     ctx: Context,
-    text: string,
-    state: Extract<MenuState, { t: 'book_dur' }>,
+    flow: {
+      resourceId: string;
+      dayOffset: 0 | 1;
+      hour: number;
+      startMinute: number;
+      sportKindCode?: SportKindCode;
+      durationMinutes: BookingDurationMinutes;
+    },
+    players: { isLookingForPlayers: boolean; requiredPlayers: number },
   ) {
-    const map: Record<string, BookingDurationMinutes> = {
-      '1 ч': 60,
-      '1.5 ч': 90,
-      '2 ч': 120,
-    };
-    const durationMinutes = map[text];
-    if (!durationMinutes) {
-      return;
-    }
     const chatId = BigInt(ctx.chat!.id);
     const admin = await isGroupAdmin(ctx);
     try {
       const { startTime, endTime, resourceName, timeZone } =
         await this.booking.createBooking({
-          resourceId: state.resourceId,
+          resourceId: flow.resourceId,
           telegramChatId: chatId,
           from: {
             id: ctx.from!.id,
             username: ctx.from!.username,
             first_name: ctx.from!.first_name,
           },
-          dayOffset: state.dayOffset,
-          startHour: state.hour,
-          startMinute: state.startMinute,
-          ...(state.sportKindCode !== undefined
-            ? { sportKindCode: state.sportKindCode }
+          dayOffset: flow.dayOffset,
+          startHour: flow.hour,
+          startMinute: flow.startMinute,
+          ...(flow.sportKindCode !== undefined
+            ? { sportKindCode: flow.sportKindCode }
             : {}),
-          durationMinutes,
+          durationMinutes: flow.durationMinutes,
           telegramGroupAdmin: admin,
+          isLookingForPlayers: players.isLookingForPlayers,
+          requiredPlayers: players.requiredPlayers,
         });
       const a = formatInTimeZone(startTime, timeZone, 'HH:mm');
       const z = formatInTimeZone(endTime, timeZone, 'HH:mm');
+      const tail =
+        players.isLookingForPlayers && players.requiredPlayers > 0
+          ? ` Ищу партнёров: нужно ещё ${players.requiredPlayers} чел.`
+          : '';
       await this.replyWithMainMenu(
         ctx,
-        `Бронирование добавлено: «${resourceName}», ${a}–${z}.`,
+        `Бронирование добавлено: «${resourceName}», ${a}–${z}.${tail}`,
       );
     } catch (e) {
       if (e instanceof SlotTakenError) {
@@ -940,9 +1057,9 @@ export class BotUpdate {
       if (e instanceof SlotInPastError) {
         this.setMenuState(ctx, {
           t: 'book_day',
-          resourceId: state.resourceId,
-          ...(state.sportKindCode !== undefined
-            ? { sportKindCode: state.sportKindCode }
+          resourceId: flow.resourceId,
+          ...(flow.sportKindCode !== undefined
+            ? { sportKindCode: flow.sportKindCode }
             : {}),
         });
         await ctx.reply(
@@ -971,6 +1088,97 @@ export class BotUpdate {
         'Не удалось создать бронь. Попробуйте ещё раз.',
       );
     }
+  }
+
+  private async handleBookDurPick(
+    ctx: Context,
+    text: string,
+    state: Extract<MenuState, { t: 'book_dur' }>,
+  ) {
+    const map: Record<string, BookingDurationMinutes> = {
+      '1 ч': 60,
+      '1.5 ч': 90,
+      '2 ч': 120,
+    };
+    const durationMinutes = map[text];
+    if (!durationMinutes) {
+      return;
+    }
+    this.setMenuState(ctx, {
+      t: 'book_looking',
+      resourceId: state.resourceId,
+      dayOffset: state.dayOffset,
+      hour: state.hour,
+      startMinute: state.startMinute,
+      durationMinutes,
+      ...(state.sportKindCode !== undefined
+        ? { sportKindCode: state.sportKindCode }
+        : {}),
+    });
+    await ctx.reply(
+      'Ищете партнёров для этой брони?',
+      this.lookingForPlayersReplyMarkup(),
+    );
+  }
+
+  private async handleBookLookingPick(
+    ctx: Context,
+    text: string,
+    state: Extract<MenuState, { t: 'book_looking' }>,
+  ) {
+    if (text === BOOK_KB_LOOKING_NO) {
+      await this.finalizeGroupBooking(ctx, state, {
+        isLookingForPlayers: false,
+        requiredPlayers: 0,
+      });
+      return;
+    }
+    if (text === BOOK_KB_LOOKING_YES) {
+      this.setMenuState(ctx, {
+        t: 'book_players',
+        resourceId: state.resourceId,
+        dayOffset: state.dayOffset,
+        hour: state.hour,
+        startMinute: state.startMinute,
+        durationMinutes: state.durationMinutes,
+        ...(state.sportKindCode !== undefined
+          ? { sportKindCode: state.sportKindCode }
+          : {}),
+      });
+      await ctx.reply(
+        'Сколько человек вы ищете? Введите число от 1 до 50.',
+        this.playersCountPromptReplyMarkup(),
+      );
+      return;
+    }
+    await ctx.reply('Нажмите «Да» или «Нет».', this.lookingForPlayersReplyMarkup());
+  }
+
+  private async handleBookPlayersPick(
+    ctx: Context,
+    text: string,
+    state: Extract<MenuState, { t: 'book_players' }>,
+  ) {
+    const raw = text.trim();
+    if (!/^\d+$/.test(raw)) {
+      await ctx.reply(
+        'Нужно целое число от 1 до 50.',
+        this.playersCountPromptReplyMarkup(),
+      );
+      return;
+    }
+    const n = Number(raw);
+    if (n < 1 || n > 50) {
+      await ctx.reply(
+        'Нужно целое число от 1 до 50.',
+        this.playersCountPromptReplyMarkup(),
+      );
+      return;
+    }
+    await this.finalizeGroupBooking(ctx, state, {
+      isLookingForPlayers: true,
+      requiredPlayers: n,
+    });
   }
 
   private async handleGridDayPick(
@@ -1556,6 +1764,32 @@ export class BotUpdate {
     }
     if (state.t === 'book_hour') {
       await this.handleBookHourPick(ctx, text, state);
+      return;
+    }
+    if (state.t === 'book_looking') {
+      if (
+        text === MENU_KB_BOOK ||
+        text === MENU_KB_LIST ||
+        text === MENU_KB_GRID
+      ) {
+        this.resetMenuState(ctx);
+        await this.handleMainMenuButtons(ctx, text);
+        return;
+      }
+      await this.handleBookLookingPick(ctx, text, state);
+      return;
+    }
+    if (state.t === 'book_players') {
+      if (
+        text === MENU_KB_BOOK ||
+        text === MENU_KB_LIST ||
+        text === MENU_KB_GRID
+      ) {
+        this.resetMenuState(ctx);
+        await this.handleMainMenuButtons(ctx, text);
+        return;
+      }
+      await this.handleBookPlayersPick(ctx, text, state);
       return;
     }
     if (state.t === 'book_dur') {
@@ -2784,6 +3018,71 @@ export class BotUpdate {
       }
       default:
         return;
+    }
+  }
+
+  @On('chat_member')
+  async onChatMember(@Ctx() ctx: Context) {
+    const up = ctx.chatMember;
+    if (!up?.chat?.id) {
+      return;
+    }
+    const { chat } = up;
+    if (chat.type !== 'group' && chat.type !== 'supergroup') {
+      return;
+    }
+    const newM = up.new_chat_member;
+    const oldM = up.old_chat_member;
+    if (newM.user.is_bot) {
+      return;
+    }
+    const chatId = BigInt(chat.id);
+    const u = newM.user;
+    const wasIn = TelegramMembersService.isStatusInChat(oldM.status);
+    const nowIn = TelegramMembersService.isStatusInChat(newM.status);
+
+    if (!nowIn && wasIn) {
+      await this.telegramMembers.recordLeave({
+        telegramChatId: chatId,
+        telegramUserId: u.id,
+      });
+      return;
+    }
+
+    if (nowIn) {
+      await this.telegramMembers.recordJoin({
+        telegramChatId: chatId,
+        telegramUserId: u.id,
+        username: u.username,
+        firstName: u.first_name,
+        lastName: u.last_name,
+      });
+
+      if (!wasIn) {
+        const comm = await this.community.findByTelegramChatId(chatId);
+        const ready = comm && comm.resources.length > 0;
+        if (ready) {
+          this.resetMenuStateForGroup(chatId, u.id);
+        }
+        const text = ready
+          ? 'Добро пожаловать!\n\n' +
+            'Меню бронирования для этого сообщества.\n\n' +
+            'Напоминания в личку — открой бота в ЛС и нажми /start.'
+          : 'Добро пожаловать!\n\n' +
+            'Площадка ещё не настроена. Администратору: команда /setup.';
+        try {
+          const kb = await this.mainMenuReplyMarkupForChatUser(
+            ctx.telegram,
+            chatId,
+            u.id,
+          );
+          await ctx.telegram.sendMessage(chat.id, text, kb);
+        } catch (e) {
+          this.logger.warn(
+            `chat_member welcome: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        }
+      }
     }
   }
 

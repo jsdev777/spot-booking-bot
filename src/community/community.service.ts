@@ -86,6 +86,15 @@ export class CommunityService {
         params.slotEndHour,
       );
       return { community, resource };
+    }).then(async (result) => {
+      await this.prisma.groupChatMembership.updateMany({
+        where: {
+          telegramChatId: params.telegramChatId,
+          isActive: true,
+        },
+        data: { communityId: result.community.id },
+      });
+      return result;
     });
   }
 

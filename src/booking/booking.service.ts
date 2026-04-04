@@ -395,6 +395,9 @@ export class BookingService {
     /** Вид спорта для брони; если не задан — берётся с объекта (настройка площадки). */
     sportKindCode?: SportKindCode;
     durationMinutes: BookingDurationMinutes;
+    /** Ищете партнёров для игры; при true нужен requiredPlayers ≥ 1. */
+    isLookingForPlayers?: boolean;
+    requiredPlayers?: number;
     now?: Date;
     telegramGroupAdmin?: boolean;
   }) {
@@ -463,6 +466,13 @@ export class BookingService {
     }
 
     const userName = displayUserName(params.from);
+    const looking = params.isLookingForPlayers === true;
+    const requiredPlayers = looking
+      ? (params.requiredPlayers ?? 0)
+      : 0;
+    if (looking && (requiredPlayers < 1 || requiredPlayers > 50)) {
+      throw new Error('requiredPlayers must be 1–50 when isLookingForPlayers');
+    }
 
     try {
       const booking = await this.prisma.$transaction(async (tx) => {
@@ -486,6 +496,8 @@ export class BookingService {
             startTime,
             endTime,
             status: BookingStatus.ACTIVE,
+            isLookingForPlayers: looking,
+            requiredPlayers,
           },
         });
       });

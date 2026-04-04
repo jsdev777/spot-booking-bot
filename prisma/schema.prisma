@@ -52,8 +52,42 @@ model Community {
   bookingWindowEndHour   Int    @default(24) @map("booking_window_end_hour")
   resources              Resource[]
   userBookingLimits      CommunityUserBookingLimit[]
+  groupMemberships       GroupChatMembership[]
 
   @@map("communities")
+}
+
+/// Пользователь Telegram (один аккаунт на все группы бота).
+model TelegramUser {
+  id             String                @id @default(uuid())
+  telegramUserId BigInt                @unique @map("telegram_user_id")
+  username       String?               @map("username")
+  firstName      String?               @map("first_name")
+  lastName       String?               @map("last_name")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+  memberships    GroupChatMembership[]
+
+  @@map("telegram_users")
+}
+
+/// Участник группы/супергруппы, где есть бот (по апдейтам chat_member).
+model GroupChatMembership {
+  id             String        @id @default(uuid())
+  telegramChatId BigInt        @map("telegram_chat_id")
+  userId         String        @map("user_id")
+  user           TelegramUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  communityId    String?       @map("community_id")
+  community      Community?    @relation(fields: [communityId], references: [id], onDelete: SetNull)
+  joinedAt       DateTime      @default(now()) @map("joined_at")
+  leftAt         DateTime?     @map("left_at")
+  isActive       Boolean       @default(true) @map("is_active")
+
+  @@unique([telegramChatId, userId])
+  @@index([telegramChatId])
+  @@index([communityId])
+  @@index([isActive])
+  @@map("group_chat_memberships")
 }
 
 /// Сколько минут суммарно один пользователь (Telegram) может забронировать в группе в каждый день недели (ISO 1–7).
