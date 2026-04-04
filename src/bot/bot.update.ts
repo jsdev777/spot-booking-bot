@@ -64,6 +64,9 @@ const MENU_DAY_TOMORROW = 'Завтра';
 /** Шаг брони: ищете партнёров. */
 const BOOK_KB_LOOKING_YES = 'Да';
 const BOOK_KB_LOOKING_NO = 'Нет';
+const RULES_ACCEPT_KB = 'Принимаю правила';
+/** Макс. длина одного сообщения с фрагментом правил (запас под лимит Telegram). */
+const RULES_MESSAGE_CHUNK = 3800;
 
 /** Участнику при закрытом окне бронирования (сразу после «Забронировать» и перед выбором дня). */
 const MSG_NO_SLOTS_BOOKING_WINDOW = 'Сейчас бронирование не доступно.';
@@ -765,6 +768,28 @@ export class BotUpdate {
 
   private async handleMainMenuButtons(ctx: Context, text: string) {
     const chatId = BigInt(ctx.chat!.id);
+
+    if (!(await isGroupAdmin(ctx))) {
+      if (
+        await this.telegramMembers.participantMustAcceptGroupRules({
+          telegramChatId: chatId,
+          telegramUserId: ctx.from!.id,
+        })
+      ) {
+        if (
+          text === MENU_KB_BOOK ||
+          text === MENU_KB_LIST ||
+          text === MENU_KB_GRID ||
+          text === MENU_KB_FREE_SLOTS
+        ) {
+          await ctx.reply(
+            'Сначала примите правила сообщества — кнопка «Принимаю правила» в личке с ботом (или в группе, если правила пришли туда).',
+            await this.mainMenuReplyMarkup(ctx),
+          );
+          return;
+        }
+      }
+    }
 
     if (text === MENU_KB_BOOK) {
       const comm = await this.community.findByTelegramChatId(chatId);
@@ -3321,6 +3346,57 @@ export class BotUpdate {
     }
   }
 
+  /**
+   * Правила в ЛС; если не выходит (нет /start, бот заблокирован) — в группу.
+   * В callback передаём groupChatId, чтобы кнопка работала из лички.
+   */
+  private async sendCommunityRulesMessages(
+    telegram: Context['telegram'],
+    groupChatId: bigint,
+    targetUserId: number,
+    rulesText: string,
+  ): Promise<{ usedDm: boolean }> {
+    const intro =
+      'Добро пожаловать! Перед началом ознакомьтесь с правилами сообщества.\n\n' +
+      'После прочтения нажмите «Принимаю правила» под последним сообщением.\n\n—\n\n';
+    const full = `${intro}${rulesText}`;
+    const chunks: string[] = [];
+    for (let i = 0; i < full.length; i += RULES_MESSAGE_CHUNK) {
+      chunks.push(full.slice(i, i + RULES_MESSAGE_CHUNK));
+    }
+    const groupStr = groupChatId.toString();
+    const cbData = `gr:${targetUserId}:${groupStr}`;
+    const lastExtra = {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: RULES_ACCEPT_KB, callback_data: cbData }],
+        ],
+      },
+    };
+
+    const sendAll = async (dest: number) => {
+      for (let i = 0; i < chunks.length; i++) {
+        const last = i === chunks.length - 1;
+        await telegram.sendMessage(
+          dest,
+          chunks[i],
+          last ? lastExtra : undefined,
+        );
+      }
+    };
+
+    try {
+      await sendAll(targetUserId);
+      return { usedDm: true };
+    } catch (e) {
+      this.logger.warn(
+        `rules to DM failed user=${targetUserId}, fallback to group: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      await sendAll(Number(groupChatId));
+      return { usedDm: false };
+    }
+  }
+
   @On('chat_member')
   async onChatMember(@Ctx() ctx: Context) {
     const up = ctx.chatMember;
@@ -3350,15 +3426,45 @@ export class BotUpdate {
     }
 
     if (nowIn) {
-      await this.telegramMembers.recordJoin({
+      const isTgAdmin = await isUserAdminOfGroupChat(ctx.telegram, chatId, u.id);
+      const joinResult = await this.telegramMembers.recordJoin({
         telegramChatId: chatId,
         telegramUserId: u.id,
         username: u.username,
         firstName: u.first_name,
         lastName: u.last_name,
+        treatAsGroupAdmin: isTgAdmin,
       });
 
       if (!wasIn) {
+        if (joinResult.pendingGroupRules && joinResult.rulesText) {
+          try {
+            const { usedDm } = await this.sendCommunityRulesMessages(
+              ctx.telegram,
+              chatId,
+              u.id,
+              joinResult.rulesText,
+            );
+            if (usedDm) {
+              try {
+                await ctx.telegram.sendMessage(
+                  chat.id,
+                  'Правила сообщества отправлены вам в личку с ботом. Откройте диалог с ботом (при необходимости нажмите Start) и подтвердите кнопкой внизу.',
+                );
+              } catch (e) {
+                this.logger.warn(
+                  `chat_member rules ping: ${e instanceof Error ? e.message : String(e)}`,
+                );
+              }
+            }
+          } catch (e) {
+            this.logger.warn(
+              `chat_member rules: ${e instanceof Error ? e.message : String(e)}`,
+            );
+          }
+          return;
+        }
+
         const comm = await this.community.findByTelegramChatId(chatId);
         const ready = comm && comm.resources.length > 0;
         if (ready) {
@@ -3424,7 +3530,22 @@ export class BotUpdate {
       return;
     }
 
-    const comm = await this.community.findByTelegramChatId(BigInt(ctx.chat.id));
+    const chatId = BigInt(ctx.chat.id);
+    if (!(await isGroupAdmin(ctx))) {
+      if (
+        await this.telegramMembers.participantMustAcceptGroupRules({
+          telegramChatId: chatId,
+          telegramUserId: ctx.from.id,
+        })
+      ) {
+        await ctx.reply(
+          'Сначала примите правила группы — кнопка «Принимаю правила» в личке с ботом или в группе.',
+        );
+        return;
+      }
+    }
+
+    const comm = await this.community.findByTelegramChatId(chatId);
     const ready = comm && comm.resources.length > 0;
 
     if (ready) {
@@ -3571,6 +3692,77 @@ export class BotUpdate {
       this.logger.warn(e instanceof Error ? e.message : 'setup DM failed');
       await ctx.reply(
         'Не удалось написать вам в личку. Откройте диалог с ботом и нажмите Start, затем снова выполните /setup в группе или нажмите «Настройки».',
+      );
+    }
+  }
+
+  /** gr:userId или gr:userId:groupChatId (второй вариант — кнопка из ЛС). */
+  @Action(/^gr:(\d+)(?::(-?\d+))?$/)
+  async onAcceptGroupRules(@Ctx() ctx: Context) {
+    const q = ctx.callbackQuery;
+    if (!q || !('data' in q) || typeof q.data !== 'string' || !ctx.from) {
+      return;
+    }
+    const mm = /^gr:(\d+)(?::(-?\d+))?$/.exec(q.data);
+    if (!mm) {
+      return;
+    }
+    const expectedUserId = Number(mm[1]);
+    const groupIdStr = mm[2];
+    if (ctx.from.id !== expectedUserId) {
+      await ctx.answerCbQuery('Эта кнопка только для вас.', {
+        show_alert: true,
+      });
+      return;
+    }
+    let groupChatId: bigint | null = null;
+    if (groupIdStr != null && groupIdStr !== '') {
+      groupChatId = BigInt(groupIdStr);
+    } else if (ctx.chat && isGroupChat(ctx)) {
+      groupChatId = BigInt(ctx.chat.id);
+    }
+    if (groupChatId === null) {
+      await ctx.answerCbQuery(
+        'Не удалось определить группу. Попросите отправить правила заново.',
+        { show_alert: true },
+      );
+      return;
+    }
+    await ctx.answerCbQuery();
+    const r = await this.telegramMembers.acceptGroupRules({
+      telegramChatId: groupChatId,
+      telegramUserId: ctx.from.id,
+    });
+    if (!r.ok) {
+      await ctx.reply(
+        'Не удалось подтвердить: правила не заданы или вы не в списке участников чата.',
+      );
+      return;
+    }
+    try {
+      await ctx.editMessageText('✅ Правила приняты.');
+    } catch {
+      /* не текст / нет прав */
+    }
+    const comm = await this.community.findByTelegramChatId(groupChatId);
+    const ready = comm && comm.resources.length > 0;
+    if (ready) {
+      this.resetMenuStateForGroup(groupChatId, ctx.from.id);
+    }
+    const welcomeText = ready
+      ? 'Меню бронирования для этого сообщества.\n\n' +
+        'Напоминания в личку — открой бота в ЛС и нажми /start.'
+      : 'Площадка ещё не настроена. Администратору: команда /setup.';
+    try {
+      const kb = await this.mainMenuReplyMarkupForChatUser(
+        ctx.telegram,
+        groupChatId,
+        ctx.from.id,
+      );
+      await ctx.telegram.sendMessage(Number(groupChatId), welcomeText, kb);
+    } catch (e) {
+      this.logger.warn(
+        `rules accept welcome: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
   }

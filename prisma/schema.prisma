@@ -53,8 +53,28 @@ model Community {
   resources              Resource[]
   userBookingLimits      CommunityUserBookingLimit[]
   groupMemberships       GroupChatMembership[]
+  rules                  CommunityRules?
 
   @@map("communities")
+}
+
+/// Правила сообщества (один текст на community). Пока не приняты — не привязываем участника к community в group_chat_memberships.
+model CommunityRules {
+  communityId String    @id @map("community_id")
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  text        String    @db.Text
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@map("community_rules")
+}
+
+/// Язык интерфейса/сообщений (код для i18n, напр. ISO 639-1).
+model Language {
+  id         String                @id
+  nameNative String                @map("name_native")
+  memberships GroupChatMembership[]
+
+  @@map("languages")
 }
 
 /// Пользователь Telegram (один аккаунт на все группы бота).
@@ -82,11 +102,16 @@ model GroupChatMembership {
   joinedAt       DateTime      @default(now()) @map("joined_at")
   leftAt         DateTime?     @map("left_at")
   isActive       Boolean       @default(true) @map("is_active")
+  languageId     String?       @map("language_id")
+  language       Language?     @relation(fields: [languageId], references: [id], onDelete: SetNull)
+  /// Ознакомление с правилами группы подтверждено.
+  groupRulesAccepted Boolean @default(false) @map("group_rules_accepted")
 
   @@unique([telegramChatId, userId])
   @@index([telegramChatId])
   @@index([communityId])
   @@index([isActive])
+  @@index([languageId])
   @@map("group_chat_memberships")
 }
 

@@ -91,6 +91,7 @@ export class CommunityService {
         where: {
           telegramChatId: params.telegramChatId,
           isActive: true,
+          groupRulesAccepted: true,
         },
         data: { communityId: result.community.id },
       });
