@@ -6,7 +6,11 @@ import {
   set,
   startOfDay,
 } from 'date-fns';
-import { formatInTimeZone, fromZonedTime, toZonedTime } from 'date-fns-tz';
+import {
+  formatInTimeZone,
+  fromZonedTime,
+  toZonedTime,
+} from 'date-fns-tz';
 import {
   BookingStatus,
   Prisma,
@@ -33,6 +37,19 @@ import {
   resolveResourceDaySchedule,
 } from './resource-schedule';
 import { isStartSlotBookable } from './slots';
+
+/** Bookings that still hold the resource slot (not ended, not cancelled). */
+const OCCUPIED_BOOKING_STATUSES: BookingStatus[] = [
+  BookingStatus.PENDING,
+  BookingStatus.ACTIVE,
+];
+
+/** Non-cancelled bookings for the same calendar day count toward the daily minute cap. */
+const DAILY_LIMIT_BOOKING_STATUSES: BookingStatus[] = [
+  BookingStatus.PENDING,
+  BookingStatus.ACTIVE,
+  BookingStatus.FINISHED,
+];
 
 type DayBookingWithSport = Prisma.BookingGetPayload<{
   include: { sportKind: true };
@@ -135,7 +152,7 @@ export class BookingService {
     );
     const sameUserBookings = await this.prisma.booking.findMany({
       where: {
-        status: BookingStatus.ACTIVE,
+        status: { in: DAILY_LIMIT_BOOKING_STATUSES },
         userId: BigInt(params.telegramUserId),
         resource: { communityId: params.communityId },
       },
@@ -218,7 +235,7 @@ export class BookingService {
     const bookings = await this.prisma.booking.findMany({
       where: {
         resourceId: params.resourceId,
-        status: BookingStatus.ACTIVE,
+        status: { in: OCCUPIED_BOOKING_STATUSES },
         startTime: { lt: maxEndUtc },
         endTime: { gt: windowStartUtc },
       },
@@ -485,7 +502,7 @@ export class BookingService {
         const clash = await tx.booking.findFirst({
           where: {
             resourceId: params.resourceId,
-            status: BookingStatus.ACTIVE,
+            status: { in: OCCUPIED_BOOKING_STATUSES },
             startTime: { lt: endTime },
             endTime: { gt: startTime },
           },
@@ -501,7 +518,7 @@ export class BookingService {
             userName,
             startTime,
             endTime,
-            status: BookingStatus.ACTIVE,
+            status: BookingStatus.PENDING,
             isLookingForPlayers: looking,
             requiredPlayers,
           },
@@ -538,7 +555,7 @@ export class BookingService {
     const booking = await this.prisma.booking.findFirst({
       where: {
         id: params.bookingId,
-        status: BookingStatus.ACTIVE,
+        status: { in: OCCUPIED_BOOKING_STATUSES },
         userId: BigInt(params.telegramUserId),
         resource: {
           community: { telegramChatId: params.telegramChatId },
@@ -598,13 +615,16 @@ export class BookingService {
     return { recipientTelegramIds, cancelNoticeText };
   }
 
-  async listMyActiveBookings(params: {
+  /**
+   * «Мої бронювання»: усе, що не FINISHED і не CANCELLED (тобто PENDING та ACTIVE).
+   */
+  async listMyBookingsNotFinishedOrCancelled(params: {
     telegramChatId: bigint;
     telegramUserId: number;
   }) {
     return this.prisma.booking.findMany({
       where: {
-        status: BookingStatus.ACTIVE,
+        status: { in: OCCUPIED_BOOKING_STATUSES },
         userId: BigInt(params.telegramUserId),
         resource: {
           community: { telegramChatId: params.telegramChatId },
@@ -620,7 +640,7 @@ export class BookingService {
     const now = params.now ?? new Date();
     return this.prisma.booking.findMany({
       where: {
-        status: BookingStatus.ACTIVE,
+        status: { in: OCCUPIED_BOOKING_STATUSES },
         isLookingForPlayers: true,
         requiredPlayers: { gt: 0 },
         startTime: { gt: now },
@@ -658,7 +678,7 @@ export class BookingService {
       const b = await tx.booking.findFirst({
         where: {
           id: params.bookingId,
-          status: BookingStatus.ACTIVE,
+          status: { in: OCCUPIED_BOOKING_STATUSES },
           isLookingForPlayers: true,
           requiredPlayers: { gt: 0 },
           resource: {

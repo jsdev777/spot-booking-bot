@@ -33,7 +33,8 @@ export class ReminderService {
     try {
       bookings = await this.prisma.booking.findMany({
         where: {
-          status: BookingStatus.ACTIVE,
+          status: { in: [BookingStatus.PENDING, BookingStatus.ACTIVE] },
+          endTime: { gt: new Date(now) },
           startTime: { gte: from, lte: to },
           OR: [
             { reminderSent: false },

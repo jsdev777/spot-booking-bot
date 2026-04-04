@@ -27,7 +27,9 @@ model SportKind {
 }
 
 enum BookingStatus {
+  PENDING
   ACTIVE
+  FINISHED
   CANCELLED
 }
 
@@ -169,7 +171,7 @@ model Booking {
   userName            String?                     @map("user_name")
   startTime           DateTime                    @map("start_time")
   endTime             DateTime                    @map("end_time")
-  status              BookingStatus               @default(ACTIVE)
+  status              BookingStatus               @default(PENDING)
   reminderSent        Boolean                     @default(false) @map("reminder_sent")
   isLookingForPlayers Boolean                     @default(false) @map("is_looking_for_players")
   requiredPlayers     Int                         @default(0) @map("required_players")

@@ -76,6 +76,7 @@ const SETUP_KB_USE_CHAT_TITLE = 'Назва, як у чаті';
 const SETUP_KB_KEEP_BOT_NAME = 'Залишити назву без змін';
 const SETUP_KB_KEEP_ADDRESS = 'Залишити адресу без змін';
 const SETUP_KB_NO_ADDRESS = 'Без адреси';
+/** Без зайвих пробілів на кінці — інакше після `.trim()` у ЛС текст кнопки не збігається. */
 const SETUP_KB_CANCEL = '« Скасування';
 const SETUP_KB_VENUES = 'Майданчики';
 const SETUP_KB_BOOKING_WINDOW = 'Час бронювання в групі';
@@ -88,6 +89,17 @@ const SETUP_KB_RESOURCE_INACTIVE = 'Не активна';
 
 /** ISO weekday 1–7 → подпись (Пн…Вс). */
 const WH_ISO_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд'] as const;
+
+/** Дві кнопки в ряд — з `resize` займають приблизно половину ширини екрана. */
+function kbRowsPaired(buttons: string[]): string[][] {
+  const rows: string[][] = [];
+  for (let i = 0; i < buttons.length; i += 2) {
+    rows.push(
+      i + 1 < buttons.length ? [buttons[i], buttons[i + 1]] : [buttons[i]],
+    );
+  }
+  return rows;
+}
 
 interface SetupDraft {
   /** 0 — выбор площадки или создание новой. */
@@ -293,17 +305,17 @@ export class BotUpdate {
     chatId: bigint,
     forUserId: number,
   ) {
-    const rows: string[][] = [
-      [MENU_KB_BOOK],
-      [MENU_KB_LIST],
-      [MENU_KB_GRID],
-      [MENU_KB_FREE_SLOTS],
+    const keys = [
+      MENU_KB_BOOK,
+      MENU_KB_LIST,
+      MENU_KB_GRID,
+      MENU_KB_FREE_SLOTS,
     ];
     if (await isUserAdminOfGroupChat(telegram, chatId, forUserId)) {
-      rows.push([MENU_KB_SETUP]);
+      keys.push(MENU_KB_SETUP);
     }
-    rows.push([MENU_KB_MAIN]);
-    return Markup.keyboard(rows).resize().persistent(true);
+    keys.push(MENU_KB_MAIN);
+    return Markup.keyboard(kbRowsPaired(keys)).resize().persistent(true);
   }
 
   /** Меню внизу экрана (reply keyboard). У админов группы — «Настройки». */
@@ -315,20 +327,19 @@ export class BotUpdate {
         ctx.from.id,
       );
     }
-    const rows: string[][] = [
-      [MENU_KB_BOOK],
-      [MENU_KB_LIST],
-      [MENU_KB_GRID],
-      [MENU_KB_FREE_SLOTS],
+    const keys = [
+      MENU_KB_BOOK,
+      MENU_KB_LIST,
+      MENU_KB_GRID,
+      MENU_KB_FREE_SLOTS,
+      MENU_KB_MAIN,
     ];
-    rows.push([MENU_KB_MAIN]);
-    return Markup.keyboard(rows).resize().persistent(true);
+    return Markup.keyboard(kbRowsPaired(keys)).resize().persistent(true);
   }
 
   private dayPickReplyMarkup() {
     return Markup.keyboard([
-      [MENU_DAY_TODAY],
-      [MENU_DAY_TOMORROW],
+      [MENU_DAY_TODAY, MENU_DAY_TOMORROW],
       [MENU_KB_BACK, MENU_KB_MAIN],
     ])
       .resize()
@@ -336,9 +347,11 @@ export class BotUpdate {
   }
 
   private hoursPickReplyMarkup(slots: BookingStartSlot[]) {
-    const rows = slots.map((s) => [
-      `${String(s.hour).padStart(2, '0')}:${String(s.minute).padStart(2, '0')}`,
-    ]);
+    const labels = slots.map(
+      (s) =>
+        `${String(s.hour).padStart(2, '0')}:${String(s.minute).padStart(2, '0')}`,
+    );
+    const rows = kbRowsPaired(labels);
     rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
     return Markup.keyboard(rows).resize().persistent(true);
   }
@@ -354,7 +367,7 @@ export class BotUpdate {
   }
 
   private durationPickReplyMarkup(minutes: number[]) {
-    const rows = minutes.map((m) => [this.durationLabel(m)]);
+    const rows = kbRowsPaired(minutes.map((m) => this.durationLabel(m)));
     rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
     return Markup.keyboard(rows).resize().persistent(true);
   }
@@ -434,10 +447,8 @@ export class BotUpdate {
       resourceName: string;
     }[],
   ) {
-    const rows: string[][] = [];
-    for (let i = 0; i < items.length; i++) {
-      rows.push([this.buildListBookingButtonLabel(items[i])]);
-    }
+    const labels = items.map((it) => this.buildListBookingButtonLabel(it));
+    const rows = kbRowsPaired(labels);
     rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
     return Markup.keyboard(rows).resize().persistent(true);
   }
@@ -452,10 +463,8 @@ export class BotUpdate {
       playersNeeded: number;
     }[],
   ) {
-    const rows: string[][] = [];
-    for (const it of items) {
-      rows.push([this.buildFreeSlotButtonLabel(it)]);
-    }
+    const labels = items.map((it) => this.buildFreeSlotButtonLabel(it));
+    const rows = kbRowsPaired(labels);
     rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
     return Markup.keyboard(rows).resize().persistent(true);
   }
@@ -488,10 +497,10 @@ export class BotUpdate {
     }[],
     markInactive = false,
   ) {
-    const rows = list.map(
-      (r, i) =>
-        [this.resourcePickButtonLabel(r, i, { markInactive })] as string[],
+    const labels = list.map((r, i) =>
+      this.resourcePickButtonLabel(r, i, { markInactive }),
     );
+    const rows = kbRowsPaired(labels);
     rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
     return Markup.keyboard(rows).resize().persistent(true);
   }
@@ -502,7 +511,7 @@ export class BotUpdate {
   }
 
   private sportPickReplyMarkup(types: SportKindCode[]) {
-    const rows = types.map((t) => [SPORT_LABEL[t]]);
+    const rows = kbRowsPaired(types.map((t) => SPORT_LABEL[t]));
     rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
     return Markup.keyboard(rows).resize().persistent(true);
   }
@@ -816,13 +825,13 @@ export class BotUpdate {
     }
 
     if (text === MENU_KB_LIST) {
-      const rows = await this.booking.listMyActiveBookings({
+      const rows = await this.booking.listMyBookingsNotFinishedOrCancelled({
         telegramChatId: chatId,
         telegramUserId: ctx.from!.id,
       });
       if (rows.length === 0) {
         await ctx.reply(
-          'У вас немає активних бронювань у цьому чаті.',
+          'Немає бронювань у цьому чаті, які ще не завершені.',
           await this.mainMenuReplyMarkup(ctx),
         );
         return;
@@ -842,7 +851,7 @@ export class BotUpdate {
         rowLabels,
       });
       await ctx.reply(
-        'Ваші бронювання — натисніть на рядок із датою та часом, щоб скасувати:',
+        'Ваші бронювання (не завершені) — натисніть на рядок із датою та часом, щоб скасувати:',
         this.listBookingsReplyMarkup(listItems),
       );
       return;
@@ -1548,8 +1557,7 @@ export class BotUpdate {
 
   private whPickDayReplyMarkup() {
     return Markup.keyboard([
-      [WH_ISO_LABELS[0], WH_ISO_LABELS[1], WH_ISO_LABELS[2], WH_ISO_LABELS[3]],
-      [WH_ISO_LABELS[4], WH_ISO_LABELS[5], WH_ISO_LABELS[6]],
+      ...kbRowsPaired([...WH_ISO_LABELS]),
       [MENU_KB_WH_DONE_TO_MENU],
     ])
       .resize()
@@ -1721,7 +1729,7 @@ export class BotUpdate {
   ) {
     const uid = ctx.from!.id;
     if (
-      text === SETUP_KB_CANCEL ||
+      text.trim() === SETUP_KB_CANCEL ||
       text === MENU_KB_MAIN ||
       (text === MENU_KB_BACK && draft.phase === 'start')
     ) {
@@ -2146,18 +2154,17 @@ export class BotUpdate {
     }
     if (backToResourcePick) {
       rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
+      rows.push([SETUP_KB_CANCEL]);
     } else {
-      rows.push([MENU_KB_MAIN]);
+      rows.push([MENU_KB_MAIN, SETUP_KB_CANCEL]);
     }
-    rows.push([SETUP_KB_CANCEL]);
     return Markup.keyboard(rows).resize().persistent(true);
   }
 
   private setupVenuesHubReplyMarkup() {
     return Markup.keyboard([
       [SETUP_KB_VENUES, SETUP_KB_BOOKING_WINDOW],
-      [SETUP_KB_BOOKING_LIMIT],
-      [SETUP_KB_CANCEL],
+      [SETUP_KB_BOOKING_LIMIT, SETUP_KB_CANCEL],
     ])
       .resize()
       .persistent(true);
@@ -2192,8 +2199,7 @@ export class BotUpdate {
 
   private setupLimitWeekdayReplyMarkup() {
     return Markup.keyboard([
-      [WH_ISO_LABELS[0], WH_ISO_LABELS[1], WH_ISO_LABELS[2], WH_ISO_LABELS[3]],
-      [WH_ISO_LABELS[4], WH_ISO_LABELS[5], WH_ISO_LABELS[6]],
+      ...kbRowsPaired([...WH_ISO_LABELS]),
       [MENU_KB_BACK, MENU_KB_MAIN],
       [SETUP_KB_CANCEL],
     ])
@@ -2202,10 +2208,11 @@ export class BotUpdate {
   }
 
   private setupLimitHoursReplyMarkup() {
-    const rows: string[][] = [[LIMIT_KB_UNLIMITED]];
-    for (let h = 0; h <= 24; h++) {
-      rows.push([`${h} ч`]);
-    }
+    const labels = [
+      LIMIT_KB_UNLIMITED,
+      ...Array.from({ length: 25 }, (_, h) => `${h} ч`),
+    ];
+    const rows = kbRowsPaired(labels);
     rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
     rows.push([SETUP_KB_CANCEL]);
     return Markup.keyboard(rows).resize().persistent(true);
@@ -2354,20 +2361,22 @@ export class BotUpdate {
   }
 
   private setupBwStartHourReplyMarkup() {
-    const rows: string[][] = [];
-    for (let h = 0; h <= 23; h++) {
-      rows.push([`${String(h).padStart(2, '0')}:00`]);
-    }
+    const labels = Array.from(
+      { length: 24 },
+      (_, h) => `${String(h).padStart(2, '0')}:00`,
+    );
+    const rows = kbRowsPaired(labels);
     rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
     rows.push([SETUP_KB_CANCEL]);
     return Markup.keyboard(rows).resize().persistent(true);
   }
 
   private setupBwEndHourReplyMarkup(slotStart: number) {
-    const rows: string[][] = [];
+    const labels: string[] = [];
     for (let h = slotStart + 1; h <= 23; h++) {
-      rows.push([`${String(h).padStart(2, '0')}:00`]);
+      labels.push(`${String(h).padStart(2, '0')}:00`);
     }
+    const rows = kbRowsPaired(labels);
     rows.push([BW_KB_END_MIDNIGHT]);
     rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
     rows.push([SETUP_KB_CANCEL]);
@@ -2555,14 +2564,11 @@ export class BotUpdate {
       visibility: ResourceVisibility;
     }[],
   ) {
-    const rows = list.map(
-      (r, i) =>
-        [
-          this.resourcePickButtonLabel(r, i, { markInactive: true }),
-        ] as string[],
+    const labels = list.map((r, i) =>
+      this.resourcePickButtonLabel(r, i, { markInactive: true }),
     );
-    rows.push([SETUP_KB_NEW_RESOURCE]);
-    rows.push([MENU_KB_BACK]);
+    const rows = kbRowsPaired(labels);
+    rows.push([SETUP_KB_NEW_RESOURCE, MENU_KB_BACK]);
     rows.push([SETUP_KB_CANCEL]);
     return Markup.keyboard(rows).resize().persistent(true);
   }
@@ -2631,39 +2637,40 @@ export class BotUpdate {
   }
 
   private setupAddressReplyMarkup(showKeepCurrent: boolean) {
-    const rows: string[][] = [];
-    if (showKeepCurrent) {
-      rows.push([SETUP_KB_KEEP_ADDRESS]);
-    }
-    rows.push([SETUP_KB_NO_ADDRESS]);
+    const rows: string[][] = showKeepCurrent
+      ? [[SETUP_KB_KEEP_ADDRESS, SETUP_KB_NO_ADDRESS]]
+      : [[SETUP_KB_NO_ADDRESS]];
     rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
     rows.push([SETUP_KB_CANCEL]);
     return Markup.keyboard(rows).resize().persistent(true);
   }
 
   private setupTzReplyMarkup() {
-    const rows = SETUP_TIMEZONES.map((tz) => {
-      const label = (tz.split('/').pop() ?? tz).slice(0, 64);
-      return [label];
-    });
+    const labels = SETUP_TIMEZONES.map((tz) =>
+      (tz.split('/').pop() ?? tz).slice(0, 64),
+    );
+    const rows = kbRowsPaired(labels);
     rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
     rows.push([SETUP_KB_CANCEL]);
     return Markup.keyboard(rows).resize().persistent(true);
   }
 
   private setupStartHourReplyMarkup() {
-    const hours = Array.from({ length: 23 }, (_, i) => i);
-    const rows = hours.map((h) => [`${String(h).padStart(2, '0')}:00`]);
+    const labels = Array.from({ length: 23 }, (_, h) =>
+      `${String(h).padStart(2, '0')}:00`,
+    );
+    const rows = kbRowsPaired(labels);
     rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
     rows.push([SETUP_KB_CANCEL]);
     return Markup.keyboard(rows).resize().persistent(true);
   }
 
   private setupClosingHourReplyMarkup(slotStart: number) {
-    const rows: string[][] = [];
+    const labels: string[] = [];
     for (let h = slotStart + 1; h <= 23; h++) {
-      rows.push([`${String(h).padStart(2, '0')}:00`]);
+      labels.push(`${String(h).padStart(2, '0')}:00`);
     }
+    const rows = kbRowsPaired(labels);
     rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
     rows.push([SETUP_KB_CANCEL]);
     return Markup.keyboard(rows).resize().persistent(true);
@@ -2671,8 +2678,7 @@ export class BotUpdate {
 
   private setupResourceVisibilityReplyMarkup() {
     return Markup.keyboard([
-      [SETUP_KB_RESOURCE_ACTIVE],
-      [SETUP_KB_RESOURCE_INACTIVE],
+      [SETUP_KB_RESOURCE_ACTIVE, SETUP_KB_RESOURCE_INACTIVE],
       [MENU_KB_BACK, MENU_KB_MAIN],
       [SETUP_KB_CANCEL],
     ])
@@ -2816,12 +2822,17 @@ export class BotUpdate {
       this.setupDrafts.delete(sk);
       this.setupBridgeGroupByUser.delete(ctx.from!.id);
       this.resetMenuStateForGroup(targetGroupChatId, ctx.from!.id);
-      await ctx.telegram.sendMessage(ctx.from!.id, 'Налаштування скасовано.', {
-        reply_markup: { remove_keyboard: true },
-      });
+      const uid = ctx.from!.id;
+      // Спочатку зняти reply-клавіатуру — інакше деякі клієнти не підміняють велике меню /setup.
+      await ctx.telegram.sendMessage(
+        uid,
+        '\u2060',
+        Markup.removeKeyboard(),
+      );
+      await this.replyWithMainMenuInDmForGroup(ctx, targetGroupChatId, '\u2060');
     };
 
-    if (text === SETUP_KB_CANCEL) {
+    if (text.trim() === SETUP_KB_CANCEL) {
       await finishCancel();
       return;
     }
