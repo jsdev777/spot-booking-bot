@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 type BookingReminder = Prisma.BookingGetPayload<{
   include: {
     resource: { include: { community: true } };
+    lookingParticipants: true;
   };
 }>;
 
@@ -33,11 +34,19 @@ export class ReminderService {
       bookings = await this.prisma.booking.findMany({
         where: {
           status: BookingStatus.ACTIVE,
-          reminderSent: false,
           startTime: { gte: from, lte: to },
+          OR: [
+            { reminderSent: false },
+            {
+              lookingParticipants: {
+                some: { reminderSent: false },
+              },
+            },
+          ],
         },
         include: {
           resource: { include: { community: true } },
+          lookingParticipants: true,
         },
       });
     } catch (e) {
@@ -61,32 +70,81 @@ export class ReminderService {
       const localTime = formatInTimeZone(b.startTime, tz, 'HH:mm');
       const place = b.resource.name;
       const text = `Напоминание: Игра через 15 минут! ${place}, начало в ${localTime}`;
-      try {
-        await this.bot.telegram.sendMessage(b.userId.toString(), text);
-        await this.prisma.booking.update({
-          where: { id: b.id },
-          data: { reminderSent: true },
-        });
-        this.logger.log(
-          JSON.stringify({
-            action: 'reminder_sent',
-            bookingId: b.id,
-            telegramUserId: b.userId.toString(),
-            startTimeUtc: b.startTime.toISOString(),
-          }),
-        );
-      } catch (e) {
-        const err = e as {
-          response?: { error_code?: number; description?: string };
-        };
-        this.logger.warn(
-          JSON.stringify({
-            action: 'reminder_failed',
-            bookingId: b.id,
-            telegramUserId: b.userId.toString(),
-            error: err?.response?.description ?? String(e),
-          }),
-        );
+      const organizerId = Number(b.userId);
+
+      if (!b.reminderSent) {
+        try {
+          await this.bot.telegram.sendMessage(organizerId, text);
+          await this.prisma.booking.update({
+            where: { id: b.id },
+            data: { reminderSent: true },
+          });
+          this.logger.log(
+            JSON.stringify({
+              action: 'reminder_sent',
+              bookingId: b.id,
+              role: 'organizer',
+              telegramUserId: organizerId,
+              startTimeUtc: b.startTime.toISOString(),
+            }),
+          );
+        } catch (e) {
+          const err = e as {
+            response?: { error_code?: number; description?: string };
+          };
+          this.logger.warn(
+            JSON.stringify({
+              action: 'reminder_failed',
+              bookingId: b.id,
+              role: 'organizer',
+              telegramUserId: organizerId,
+              error: err?.response?.description ?? String(e),
+            }),
+          );
+        }
+      }
+
+      for (const p of b.lookingParticipants) {
+        if (p.reminderSent) {
+          continue;
+        }
+        const pid = Number(p.telegramUserId);
+        if (pid === organizerId) {
+          await this.prisma.bookingLookingParticipant.update({
+            where: { id: p.id },
+            data: { reminderSent: true },
+          });
+          continue;
+        }
+        try {
+          await this.bot.telegram.sendMessage(pid, text);
+          await this.prisma.bookingLookingParticipant.update({
+            where: { id: p.id },
+            data: { reminderSent: true },
+          });
+          this.logger.log(
+            JSON.stringify({
+              action: 'reminder_sent',
+              bookingId: b.id,
+              role: 'looking_participant',
+              telegramUserId: pid,
+              startTimeUtc: b.startTime.toISOString(),
+            }),
+          );
+        } catch (e) {
+          const err = e as {
+            response?: { error_code?: number; description?: string };
+          };
+          this.logger.warn(
+            JSON.stringify({
+              action: 'reminder_failed',
+              bookingId: b.id,
+              role: 'looking_participant',
+              telegramUserId: pid,
+              error: err?.response?.description ?? String(e),
+            }),
+          );
+        }
       }
     }
   }

@@ -42,7 +42,9 @@ export type MenuState =
     }
   | { t: 'grid_res' }
   | { t: 'grid_day'; resourceId: string }
-  | { t: 'list'; bookingIds: string[]; rowLabels: string[] };
+  | { t: 'list'; bookingIds: string[]; rowLabels: string[] }
+  /** Брони с поиском партнёров (кнопка «Свободные места»). */
+  | { t: 'free_slots'; bookingIds: string[]; rowLabels: string[] };
 
 export function defaultMenuState(): MenuState {
   return { t: 'main' };

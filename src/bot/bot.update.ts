@@ -48,6 +48,7 @@ const KIND_LABEL_TO_CODE = new Map<string, SportKindCode>(
 const MENU_KB_BOOK = 'Забронировать';
 const MENU_KB_LIST = 'Мои бронирования';
 const MENU_KB_GRID = 'Расписание дня';
+const MENU_KB_FREE_SLOTS = 'Свободные места';
 /** Reply keyboard: текст «Настройки» + команда /setup обрабатываются одинаково. */
 const MENU_KB_SETUP = 'Настройки';
 const MENU_KB_BACK = '« Назад';
@@ -289,7 +290,12 @@ export class BotUpdate {
     chatId: bigint,
     forUserId: number,
   ) {
-    const rows: string[][] = [[MENU_KB_BOOK], [MENU_KB_LIST], [MENU_KB_GRID]];
+    const rows: string[][] = [
+      [MENU_KB_BOOK],
+      [MENU_KB_LIST],
+      [MENU_KB_GRID],
+      [MENU_KB_FREE_SLOTS],
+    ];
     if (await isUserAdminOfGroupChat(telegram, chatId, forUserId)) {
       rows.push([MENU_KB_SETUP]);
     }
@@ -306,7 +312,12 @@ export class BotUpdate {
         ctx.from.id,
       );
     }
-    const rows: string[][] = [[MENU_KB_BOOK], [MENU_KB_LIST], [MENU_KB_GRID]];
+    const rows: string[][] = [
+      [MENU_KB_BOOK],
+      [MENU_KB_LIST],
+      [MENU_KB_GRID],
+      [MENU_KB_FREE_SLOTS],
+    ];
     rows.push([MENU_KB_MAIN]);
     return Markup.keyboard(rows).resize().persistent(true);
   }
@@ -390,6 +401,28 @@ export class BotUpdate {
     return label;
   }
 
+  /** Кнопка в «Свободные места» (лимит Telegram — 64 символа). */
+  private buildFreeSlotButtonLabel(item: {
+    startTime: Date;
+    endTime: Date;
+    timeZone: string;
+    resourceName: string;
+    sportNameRu: string;
+    playersNeeded: number;
+  }): string {
+    const day = formatInTimeZone(item.startTime, item.timeZone, 'dd.MM');
+    const a = formatInTimeZone(item.startTime, item.timeZone, 'HH:mm');
+    const z = formatInTimeZone(item.endTime, item.timeZone, 'HH:mm');
+    const sport = item.sportNameRu.trim() || '—';
+    const res = item.resourceName.trim() || '—';
+    const tail = `ещё ${item.playersNeeded}`;
+    let label = `${day} ${a}–${z} · ${sport} · ${res} · ${tail}`;
+    if (label.length > 64) {
+      label = `${day} ${a}–${z} · … · ${tail}`.slice(0, 64);
+    }
+    return label;
+  }
+
   private listBookingsReplyMarkup(
     items: {
       startTime: Date;
@@ -401,6 +434,24 @@ export class BotUpdate {
     const rows: string[][] = [];
     for (let i = 0; i < items.length; i++) {
       rows.push([this.buildListBookingButtonLabel(items[i])]);
+    }
+    rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
+    return Markup.keyboard(rows).resize().persistent(true);
+  }
+
+  private freeSlotsReplyMarkup(
+    items: {
+      startTime: Date;
+      endTime: Date;
+      timeZone: string;
+      resourceName: string;
+      sportNameRu: string;
+      playersNeeded: number;
+    }[],
+  ) {
+    const rows: string[][] = [];
+    for (const it of items) {
+      rows.push([this.buildFreeSlotButtonLabel(it)]);
     }
     rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
     return Markup.keyboard(rows).resize().persistent(true);
@@ -702,6 +753,7 @@ export class BotUpdate {
         return;
       }
       case 'list':
+      case 'free_slots':
         this.resetMenuState(ctx);
         await ctx.reply('Главное меню:', await this.mainMenuReplyMarkup(ctx));
         return;
@@ -796,6 +848,49 @@ export class BotUpdate {
         'Расписание — выберите площадку:',
         this.resourcePickReplyMarkup(list, admin),
       );
+      return;
+    }
+
+    if (text === MENU_KB_FREE_SLOTS) {
+      const comm = await this.community.findByTelegramChatId(chatId);
+      if (!comm) {
+        await ctx.reply(
+          'Площадка не настроена. Администратору: /setup.',
+          await this.mainMenuReplyMarkup(ctx),
+        );
+        return;
+      }
+      const rows = await this.booking.listOpenLookingSlots({
+        telegramChatId: chatId,
+      });
+      if (rows.length === 0) {
+        await ctx.reply(
+          'Сейчас никто не ищет партнёров по будущим играм в этой группе.',
+          await this.mainMenuReplyMarkup(ctx),
+        );
+        return;
+      }
+      const listItems = rows.map((r) => ({
+        startTime: r.startTime,
+        endTime: r.endTime,
+        timeZone: r.resource.timeZone,
+        resourceName: r.resource.name,
+        sportNameRu: r.sportKind.nameRu,
+        playersNeeded: r.requiredPlayers,
+      }));
+      const rowLabels = listItems.map((item) =>
+        this.buildFreeSlotButtonLabel(item),
+      );
+      this.setMenuState(ctx, {
+        t: 'free_slots',
+        bookingIds: rows.map((r) => r.id),
+        rowLabels,
+      });
+      await ctx.reply(
+        'Свободные места — нажмите строку, чтобы присоединиться к игре (список обновится):',
+        this.freeSlotsReplyMarkup(listItems),
+      );
+      return;
     }
   }
 
@@ -1221,11 +1316,20 @@ export class BotUpdate {
       return;
     }
     try {
-      await this.booking.cancelBooking({
+      const notify = await this.booking.cancelBooking({
         bookingId,
         telegramChatId: BigInt(ctx.chat!.id),
         telegramUserId: ctx.from!.id,
       });
+      for (const uid of notify.recipientTelegramIds) {
+        try {
+          await ctx.telegram.sendMessage(uid, notify.cancelNoticeText);
+        } catch (e) {
+          this.logger.warn(
+            `booking_cancel_dm failed user=${uid}: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        }
+      }
       await this.replyWithMainMenu(ctx, 'Бронирование отменено.');
     } catch (e) {
       if (e instanceof BookingNotFoundError) {
@@ -1237,6 +1341,184 @@ export class BotUpdate {
       }
       throw e;
     }
+  }
+
+  private formatLookingSlotDmText(params: {
+    dm: {
+      resourceName: string;
+      address: string | null;
+      timeZone: string;
+      startTime: Date;
+      endTime: Date;
+      sportNameRu: string;
+    };
+    yourPeopleCount: number;
+  }): string {
+    const { dm, yourPeopleCount } = params;
+    const day = formatInTimeZone(dm.startTime, dm.timeZone, 'dd.MM.yyyy');
+    const a = formatInTimeZone(dm.startTime, dm.timeZone, 'HH:mm');
+    const z = formatInTimeZone(dm.endTime, dm.timeZone, 'HH:mm');
+    const addr = dm.address?.trim()
+      ? dm.address.trim()
+      : 'не указан — уточните у организатора в группе';
+    const peopleLine =
+      yourPeopleCount === 1
+        ? 'С вашей стороны учтён 1 человек (вы).'
+        : `С вашей стороны учтено человек: ${yourPeopleCount}.`;
+
+    return (
+      `Вы в списке на игру.\n\n${peopleLine}\n\n` +
+      `Где: «${dm.resourceName}»\n` +
+      `Адрес: ${addr}\n` +
+      `Когда: ${day} ${a}–${z} (${dm.timeZone})\n` +
+      `Спорт: ${dm.sportNameRu}\n\n` +
+      `Сохраните этот диалог — сюда же могут приходить напоминания.`
+    );
+  }
+
+  private async sendLookingSlotDm(
+    ctx: Context,
+    bookingId: string,
+    joinResult: {
+      previousDmMessageId: number | null;
+      dm: {
+        resourceName: string;
+        address: string | null;
+        timeZone: string;
+        startTime: Date;
+        endTime: Date;
+        sportNameRu: string;
+      };
+      yourPeopleCount: number;
+    },
+  ) {
+    if (!ctx.from) {
+      return;
+    }
+    const userId = ctx.from.id;
+    const text = this.formatLookingSlotDmText({
+      dm: joinResult.dm,
+      yourPeopleCount: joinResult.yourPeopleCount,
+    });
+    let sentId: number;
+    try {
+      const sent = await ctx.telegram.sendMessage(userId, text);
+      sentId = sent.message_id;
+    } catch (e) {
+      this.logger.warn(
+        `looking slot DM failed user=${userId}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return;
+    }
+    await this.booking.setLookingParticipantDmMessageId({
+      bookingId,
+      telegramUserId: userId,
+      messageId: sentId,
+    });
+    if (joinResult.previousDmMessageId != null) {
+      try {
+        await ctx.telegram.deleteMessage(
+          userId,
+          joinResult.previousDmMessageId,
+        );
+      } catch {
+        /* уже удалено или нет прав */
+      }
+    }
+  }
+
+  private async handleFreeSlotJoin(
+    ctx: Context,
+    text: string,
+    state: Extract<MenuState, { t: 'free_slots' }>,
+  ) {
+    const idx = state.rowLabels.indexOf(text);
+    if (idx === -1) {
+      return;
+    }
+    const bookingId = state.bookingIds[idx];
+    if (!bookingId) {
+      return;
+    }
+    const chatId = BigInt(ctx.chat!.id);
+    let joinResult: Awaited<
+      ReturnType<BookingService['volunteerForLookingSlot']>
+    >;
+    try {
+      joinResult = await this.booking.volunteerForLookingSlot({
+        bookingId,
+        telegramChatId: chatId,
+        telegramUserId: ctx.from!.id,
+      });
+    } catch (e) {
+      if (e instanceof BookingNotFoundError) {
+        const rows = await this.booking.listOpenLookingSlots({
+          telegramChatId: chatId,
+        });
+        if (rows.length === 0) {
+          await this.replyWithMainMenu(
+            ctx,
+            'Эта игра уже набрала состав или слот недоступен.',
+          );
+          return;
+        }
+        const listItems = rows.map((r) => ({
+          startTime: r.startTime,
+          endTime: r.endTime,
+          timeZone: r.resource.timeZone,
+          resourceName: r.resource.name,
+          sportNameRu: r.sportKind.nameRu,
+          playersNeeded: r.requiredPlayers,
+        }));
+        const rowLabels = listItems.map((item) =>
+          this.buildFreeSlotButtonLabel(item),
+        );
+        this.setMenuState(ctx, {
+          t: 'free_slots',
+          bookingIds: rows.map((r) => r.id),
+          rowLabels,
+        });
+        await ctx.reply(
+          'Список устарел — обновили. Выберите слот снова:',
+          this.freeSlotsReplyMarkup(listItems),
+        );
+        return;
+      }
+      throw e;
+    }
+
+    await this.sendLookingSlotDm(ctx, bookingId, joinResult);
+
+    const rows = await this.booking.listOpenLookingSlots({
+      telegramChatId: chatId,
+    });
+    if (rows.length === 0) {
+      await this.replyWithMainMenu(
+        ctx,
+        'Вас учли в составе. Детали игры отправил в личные сообщения. Открытых мест для набора больше нет.',
+      );
+      return;
+    }
+    const listItems = rows.map((r) => ({
+      startTime: r.startTime,
+      endTime: r.endTime,
+      timeZone: r.resource.timeZone,
+      resourceName: r.resource.name,
+      sportNameRu: r.sportKind.nameRu,
+      playersNeeded: r.requiredPlayers,
+    }));
+    const rowLabels = listItems.map((item) =>
+      this.buildFreeSlotButtonLabel(item),
+    );
+    this.setMenuState(ctx, {
+      t: 'free_slots',
+      bookingIds: rows.map((r) => r.id),
+      rowLabels,
+    });
+    await ctx.reply(
+      'Вас учли в составе. Когда и где вас ждут — в личных сообщениях со мной. Можно выбрать ещё слот или «Главное меню»:',
+      this.freeSlotsReplyMarkup(listItems),
+    );
   }
 
   private whPickDayReplyMarkup() {
@@ -1734,7 +2016,22 @@ export class BotUpdate {
       } else if (
         text === MENU_KB_BOOK ||
         text === MENU_KB_LIST ||
-        text === MENU_KB_GRID
+        text === MENU_KB_GRID ||
+        text === MENU_KB_FREE_SLOTS
+      ) {
+        this.resetMenuState(ctx);
+        await this.handleMainMenuButtons(ctx, text);
+      }
+      return;
+    }
+    if (state.t === 'free_slots') {
+      if (state.rowLabels.includes(text)) {
+        await this.handleFreeSlotJoin(ctx, text, state);
+      } else if (
+        text === MENU_KB_BOOK ||
+        text === MENU_KB_LIST ||
+        text === MENU_KB_GRID ||
+        text === MENU_KB_FREE_SLOTS
       ) {
         this.resetMenuState(ctx);
         await this.handleMainMenuButtons(ctx, text);
@@ -1745,7 +2042,8 @@ export class BotUpdate {
       if (
         text === MENU_KB_BOOK ||
         text === MENU_KB_LIST ||
-        text === MENU_KB_GRID
+        text === MENU_KB_GRID ||
+        text === MENU_KB_FREE_SLOTS
       ) {
         this.resetMenuState(ctx);
         await this.handleMainMenuButtons(ctx, text);
@@ -1770,7 +2068,8 @@ export class BotUpdate {
       if (
         text === MENU_KB_BOOK ||
         text === MENU_KB_LIST ||
-        text === MENU_KB_GRID
+        text === MENU_KB_GRID ||
+        text === MENU_KB_FREE_SLOTS
       ) {
         this.resetMenuState(ctx);
         await this.handleMainMenuButtons(ctx, text);
@@ -1783,7 +2082,8 @@ export class BotUpdate {
       if (
         text === MENU_KB_BOOK ||
         text === MENU_KB_LIST ||
-        text === MENU_KB_GRID
+        text === MENU_KB_GRID ||
+        text === MENU_KB_FREE_SLOTS
       ) {
         this.resetMenuState(ctx);
         await this.handleMainMenuButtons(ctx, text);

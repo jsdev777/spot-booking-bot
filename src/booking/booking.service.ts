@@ -53,6 +53,12 @@ type LoadedResourceDayBookings = {
 /** Локальное время начала брони (шаг 30 мин: :00 и :30). */
 export type BookingStartSlot = { hour: number; minute: number };
 
+/** Кому и что отправить в ЛС после отмены брони организатором. */
+export type BookingCancelNotification = {
+  recipientTelegramIds: number[];
+  cancelNoticeText: string;
+};
+
 export type TelegramFrom = {
   id: number;
   username?: string;
@@ -528,7 +534,7 @@ export class BookingService {
     bookingId: string;
     telegramChatId: bigint;
     telegramUserId: number;
-  }) {
+  }): Promise<BookingCancelNotification> {
     const booking = await this.prisma.booking.findFirst({
       where: {
         id: params.bookingId,
@@ -540,18 +546,44 @@ export class BookingService {
       },
       include: {
         resource: { include: { community: true } },
+        sportKind: true,
+        lookingParticipants: true,
       },
     });
     if (!booking) {
       throw new BookingNotFoundError();
     }
 
-    await this.prisma.booking.update({
-      where: { id: booking.id },
-      data: { status: BookingStatus.CANCELLED },
+    const tz = booking.resource.timeZone;
+    const day = formatInTimeZone(booking.startTime, tz, 'dd.MM.yyyy');
+    const a = formatInTimeZone(booking.startTime, tz, 'HH:mm');
+    const z = formatInTimeZone(booking.endTime, tz, 'HH:mm');
+    const sport =
+      booking.sportKind.nameRu.trim() || booking.sportKindCode;
+    const cancelNoticeText =
+      `Бронь отменена организатором.\n\n` +
+      `Площадка: «${booking.resource.name}»\n` +
+      `Время: ${day} ${a}–${z} (${tz})\n` +
+      `Спорт: ${sport}`;
+
+    const organizerId = Number(booking.userId);
+    const fromParticipants = booking.lookingParticipants.map((p) =>
+      Number(p.telegramUserId),
+    );
+    const recipientTelegramIds = [
+      ...new Set([organizerId, ...fromParticipants]),
+    ];
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.bookingLookingParticipant.deleteMany({
+        where: { bookingId: booking.id },
+      });
+      await tx.booking.update({
+        where: { id: booking.id },
+        data: { status: BookingStatus.CANCELLED },
+      });
     });
 
-    const tz = booking.resource.timeZone;
     this.logger.log(
       JSON.stringify({
         action: 'booking_cancelled',
@@ -560,8 +592,11 @@ export class BookingService {
         telegramUserId: params.telegramUserId,
         startTimeUtc: booking.startTime.toISOString(),
         startLocal: formatInTimeZone(booking.startTime, tz, 'yyyy-MM-dd HH:mm'),
+        notifiedRecipients: recipientTelegramIds.length,
       }),
     );
+
+    return { recipientTelegramIds, cancelNoticeText };
   }
 
   async listMyActiveBookings(params: {
@@ -578,6 +613,132 @@ export class BookingService {
       },
       include: { resource: { include: { community: true } } },
       orderBy: { startTime: 'asc' },
+    });
+  }
+
+  /** Активные брони в чате, где ещё ищут партнёров (только будущие слоты). */
+  async listOpenLookingSlots(params: { telegramChatId: bigint; now?: Date }) {
+    const now = params.now ?? new Date();
+    return this.prisma.booking.findMany({
+      where: {
+        status: BookingStatus.ACTIVE,
+        isLookingForPlayers: true,
+        requiredPlayers: { gt: 0 },
+        startTime: { gt: now },
+        resource: {
+          community: { telegramChatId: params.telegramChatId },
+        },
+      },
+      include: { resource: true, sportKind: true },
+      orderBy: { startTime: 'asc' },
+    });
+  }
+
+  /**
+   * Нажатие «Свободные места»: −1 к required_players; учёт в booking_looking_participants (people_count += 1 на этого пользователя).
+   */
+  async volunteerForLookingSlot(params: {
+    bookingId: string;
+    telegramChatId: bigint;
+    telegramUserId: number;
+  }): Promise<{
+    remainingPlayers: number;
+    yourPeopleCount: number;
+    /** Предыдущее ЛС по этой же брони — удалить перед новым сообщением. */
+    previousDmMessageId: number | null;
+    dm: {
+      resourceName: string;
+      address: string | null;
+      timeZone: string;
+      startTime: Date;
+      endTime: Date;
+      sportNameRu: string;
+    };
+  }> {
+    return this.prisma.$transaction(async (tx) => {
+      const b = await tx.booking.findFirst({
+        where: {
+          id: params.bookingId,
+          status: BookingStatus.ACTIVE,
+          isLookingForPlayers: true,
+          requiredPlayers: { gt: 0 },
+          resource: {
+            community: { telegramChatId: params.telegramChatId },
+          },
+        },
+        select: { id: true, requiredPlayers: true },
+      });
+      if (!b) {
+        throw new BookingNotFoundError();
+      }
+      const prior = await tx.bookingLookingParticipant.findUnique({
+        where: {
+          bookingId_telegramUserId: {
+            bookingId: b.id,
+            telegramUserId: BigInt(params.telegramUserId),
+          },
+        },
+        select: { lastDmMessageId: true },
+      });
+      const previousDmMessageId = prior?.lastDmMessageId ?? null;
+
+      const next = b.requiredPlayers - 1;
+      await tx.booking.update({
+        where: { id: b.id },
+        data: {
+          requiredPlayers: next,
+          isLookingForPlayers: next > 0,
+        },
+      });
+      const part = await tx.bookingLookingParticipant.upsert({
+        where: {
+          bookingId_telegramUserId: {
+            bookingId: b.id,
+            telegramUserId: BigInt(params.telegramUserId),
+          },
+        },
+        create: {
+          bookingId: b.id,
+          telegramUserId: BigInt(params.telegramUserId),
+          peopleCount: 1,
+        },
+        update: {
+          peopleCount: { increment: 1 },
+        },
+      });
+      const full = await tx.booking.findUniqueOrThrow({
+        where: { id: b.id },
+        include: { resource: true, sportKind: true },
+      });
+      return {
+        remainingPlayers: next,
+        yourPeopleCount: part.peopleCount,
+        previousDmMessageId,
+        dm: {
+          resourceName: full.resource.name,
+          address: full.resource.address,
+          timeZone: full.resource.timeZone,
+          startTime: full.startTime,
+          endTime: full.endTime,
+          sportNameRu: full.sportKind.nameRu.trim() || full.sportKindCode,
+        },
+      };
+    });
+  }
+
+  async setLookingParticipantDmMessageId(params: {
+    bookingId: string;
+    telegramUserId: number;
+    messageId: number;
+  }): Promise<void> {
+    await this.prisma.bookingLookingParticipant.update({
+      where: {
+        bookingId_telegramUserId: {
+          bookingId: params.bookingId,
+          telegramUserId: BigInt(params.telegramUserId),
+        },
+      },
+      data: { lastDmMessageId: params.messageId },
     });
   }
 

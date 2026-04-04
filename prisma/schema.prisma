@@ -149,7 +149,29 @@ model Booking {
   isLookingForPlayers Boolean       @default(false) @map("is_looking_for_players")
   requiredPlayers     Int           @default(0) @map("required_players")
   createdAt           DateTime      @default(now()) @map("created_at")
+  lookingParticipants BookingLookingParticipant[]
 
   @@index([resourceId, status])
   @@map("bookings")
+}
+
+/// Кто присоединился к брони через «Свободные места»: на каждое нажатие +1 к peopleCount и −1 к booking.required_players.
+model BookingLookingParticipant {
+  id               String   @id @default(uuid())
+  bookingId        String   @map("booking_id")
+  booking          Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  telegramUserId   BigInt   @map("telegram_user_id")
+  /** Сколько раз пользователь нажал кнопку (= сколько человек с его стороны). */
+  peopleCount      Int      @default(1) @map("people_count")
+  /** id последнего ЛС с деталями игры (удаляем перед отправкой обновлённого текста). */
+  lastDmMessageId  Int?     @map("last_dm_message_id")
+  /** Напоминание за ~15 мин до начала отправлено этому участнику. */
+  reminderSent     Boolean  @default(false) @map("reminder_sent")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@unique([bookingId, telegramUserId])
+  @@index([bookingId])
+  @@index([telegramUserId])
+  @@map("booking_looking_participants")
 }
