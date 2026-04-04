@@ -1,0 +1,121 @@
+generator client {
+  provider       = "prisma-client"
+  output         = "../src/generated/prisma"
+  moduleFormat   = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Код вида спорта (в PostgreSQL тип enum по-прежнему называется SportType).
+enum SportKindCode {
+  TENNIS
+  FOOTBALL
+  BASKETBALL
+
+  @@map("SportType")
+}
+
+/// Справочник видов спорта: код + подпись (для броней и UI).
+model SportKind {
+  sportKindCode SportKindCode @id @map("sport_kind_code")
+  nameRu        String        @map("name_ru")
+  bookings      Booking[]
+
+  @@map("sport_kinds")
+}
+
+enum BookingStatus {
+  ACTIVE
+  CANCELLED
+}
+
+/// Видимость площадки в бронировании для обычных участников чата.
+enum ResourceVisibility {
+  ACTIVE
+  INACTIVE
+
+  @@map("resource_visibility")
+}
+
+model Community {
+  id             String     @id @default(uuid())
+  telegramChatId BigInt     @unique @map("telegram_chat_id")
+  name           String
+  createdAt      DateTime   @default(now()) @map("created_at")
+  /// Часовой пояс интервала, когда обычные участники могут оформлять бронь (локальное время). Админы/creator чата не ограничены.
+  bookingWindowTimeZone  String @default("Europe/Moscow") @map("booking_window_time_zone")
+  /// Начало окна для участников, час 0–23 (включительно). Админы группы могут бронировать в любое время.
+  bookingWindowStartHour Int    @default(0) @map("booking_window_start_hour")
+  /// Конец окна для участников, час 1–24: [start, end); 24 — до полуночи. На админов не распространяется.
+  bookingWindowEndHour   Int    @default(24) @map("booking_window_end_hour")
+  resources              Resource[]
+  userBookingLimits      CommunityUserBookingLimit[]
+
+  @@map("communities")
+}
+
+/// Сколько минут суммарно один пользователь (Telegram) может забронировать в группе в каждый день недели (ISO 1–7).
+/// День недели и календарная дата — в часовом поясе площадки (`Resource.timeZone`) при оформлении брони. null = без лимита.
+model CommunityUserBookingLimit {
+  id           String    @id @default(uuid())
+  communityId  String    @map("community_id")
+  community    Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  weekday      Int
+  maxMinutes   Int?      @map("max_minutes")
+
+  @@unique([communityId, weekday])
+  @@index([communityId])
+  @@map("community_user_booking_limits")
+}
+
+model Resource {
+  id            String                 @id @default(uuid())
+  name          String
+  address       String?
+  timeZone      String                 @map("time_zone")
+  visibility    ResourceVisibility     @default(ACTIVE) @map("visibility")
+  communityId   String                 @map("community_id")
+  community     Community              @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  bookings      Booking[]
+  workingHours  ResourceWorkingHours[]
+
+  @@index([communityId])
+  @@map("resources")
+}
+
+/// Часы работы площадки по дню недели (ISO 1 = пн … 7 = вс).
+model ResourceWorkingHours {
+  id            String   @id @default(uuid())
+  resourceId    String   @map("resource_id")
+  resource      Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  weekday       Int
+  isClosed      Boolean  @default(false) @map("is_closed")
+  slotStartHour Int?     @map("slot_start_hour")
+  slotEndHour   Int?     @map("slot_end_hour")
+
+  @@unique([resourceId, weekday])
+  @@index([resourceId])
+  @@map("resource_working_hours")
+}
+
+model Booking {
+  id                  String        @id @default(uuid())
+  resourceId          String        @map("resource_id")
+  resource            Resource      @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  sportKindCode       SportKindCode @map("sport_kind_code")
+  sportKind           SportKind     @relation(fields: [sportKindCode], references: [sportKindCode])
+  userId              BigInt        @map("user_id")
+  userName            String?       @map("user_name")
+  startTime           DateTime      @map("start_time")
+  endTime             DateTime      @map("end_time")
+  status              BookingStatus @default(ACTIVE)
+  reminderSent        Boolean       @default(false) @map("reminder_sent")
+  isLookingForPlayers Boolean       @default(false) @map("is_looking_for_players")
+  requiredPlayers     Int           @default(0) @map("required_players")
+  createdAt           DateTime      @default(now()) @map("created_at")
+
+  @@index([resourceId, status])
+  @@map("bookings")
+}
