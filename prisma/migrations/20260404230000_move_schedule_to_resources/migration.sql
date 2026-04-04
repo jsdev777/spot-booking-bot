@@ -1,4 +1,4 @@
--- Перенос часового пояса, часов работы и адреса с сообщества на каждую площадку (resource).
+-- Transferring time zones, business hours, and addresses from the community to each site (resource).
 
 ALTER TABLE "resources" ADD COLUMN "address" TEXT;
 ALTER TABLE "resources" ADD COLUMN "time_zone" TEXT;

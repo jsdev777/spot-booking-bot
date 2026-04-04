@@ -1,9 +1,9 @@
 import { toZonedTime } from 'date-fns-tz';
 
 /**
- * Текущее локальное время в `timeZone` попадает в полуинтервал
- * [startHour, endHour) по часам стенных часов (минуты учитываются).
- * endHour 24 означает до 24:00 (полночь) того же календарного дня.
+ * The current local time in `timeZone` falls within the half-interval
+ * [startHour, endHour) based on wall clock time (minutes are taken into account).
+ * endHour 24 means before 24:00 (midnight) of the same calendar day.
  */
 export function isLocalTimeWithinBookingWindow(params: {
   now: Date;

@@ -28,7 +28,7 @@ ALTER TABLE "community_telegram_users" ADD CONSTRAINT "community_telegram_users_
 -- AddForeignKey
 ALTER TABLE "community_telegram_users" ADD CONSTRAINT "community_telegram_users_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "telegram_users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
--- Backfill из уже известных членств в группах с привязкой к сообществу
+-- Backfill using existing group memberships linked to the community
 INSERT INTO "community_telegram_users" ("id", "community_id", "user_id", "joined_at", "left_at", "is_active")
 SELECT gen_random_uuid()::text, gm."community_id", gm."user_id", gm."joined_at", gm."left_at", gm."is_active"
 FROM "group_chat_memberships" gm

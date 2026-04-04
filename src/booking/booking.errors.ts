@@ -19,7 +19,7 @@ export class SlotInPastError extends Error {
   }
 }
 
-/** Сейчас вне окна бронирования, заданного для сообщества. */
+/** Currently outside the booking window set for the community. */
 export class BookingWindowClosedError extends Error {
   constructor() {
     super('Community booking window is closed');
@@ -27,7 +27,7 @@ export class BookingWindowClosedError extends Error {
   }
 }
 
-/** Превышен дневной лимит бронирования пользователя в сообществе (по настройке группы). */
+/** The user's daily booking limit in the community has been exceeded (as per group settings). */
 export class UserDailyBookingLimitExceededError extends Error {
   constructor() {
     super('User daily booking limit exceeded for community');

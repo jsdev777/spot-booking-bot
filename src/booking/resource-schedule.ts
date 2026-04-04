@@ -27,7 +27,7 @@ function atLocalHour(
   return fromZonedTime(local, timeZone);
 }
 
-/** ISO день недели 1–7 (пн–вс) для календарного дня `localDay` в часовом поясе площадки. */
+/** ISO day of the week 1–7 (Mon–Sun) for the calendar day `localDay` in the site's time zone. */
 export function isoWeekdayInTimeZone(localDay: Date, timeZone: string): number {
   return Number(
     formatInTimeZone(atLocalHour(localDay, 12, 0, timeZone), timeZone, 'i'),

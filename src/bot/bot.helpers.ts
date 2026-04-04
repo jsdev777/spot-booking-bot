@@ -17,7 +17,7 @@ export async function isGroupAdmin(ctx: Context): Promise<boolean> {
   }
 }
 
-/** Проверка прав администратора в указанном чате (для ЛС, когда `ctx.chat` — не группа). */
+/** Checking administrator permissions in the specified chat (for private messages when `ctx.chat` is not a group). */
 export async function isUserAdminOfGroupChat(
   telegram: Context['telegram'],
   groupChatId: bigint,

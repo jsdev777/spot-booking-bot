@@ -29,7 +29,7 @@ import {
 import { type MenuState, defaultMenuState } from './menu-state';
 
 const SPORT_LABEL: Record<SportKindCode, string> = {
-  [SportKindCode.TENNIS]: 'Теннис',
+  [SportKindCode.TENNIS]: 'Теніс',
   [SportKindCode.FOOTBALL]: 'Футбол',
   [SportKindCode.BASKETBALL]: 'Баскетбол',
 };
@@ -45,49 +45,49 @@ const KIND_LABEL_TO_CODE = new Map<string, SportKindCode>(
 );
 
 /** Подписи reply keyboard (должны совпадать с обработчиком @On('text')). */
-const MENU_KB_BOOK = 'Забронировать';
-const MENU_KB_LIST = 'Мои бронирования';
-const MENU_KB_GRID = 'Расписание дня';
-const MENU_KB_FREE_SLOTS = 'Свободные места';
+const MENU_KB_BOOK = 'Забронювати';
+const MENU_KB_LIST = 'Мої бронювання';
+const MENU_KB_GRID = 'Розклад дня';
+const MENU_KB_FREE_SLOTS = 'Вільні місця';
 /** Reply keyboard: текст «Настройки» + команда /setup обрабатываются одинаково. */
-const MENU_KB_SETUP = 'Настройки';
+const MENU_KB_SETUP = 'Налаштування';
 const MENU_KB_BACK = '« Назад';
-const MENU_KB_MAIN = 'Главное меню';
+const MENU_KB_MAIN = 'Головне меню';
 /** Reply-меню после /setup: настройка часов по дням недели. */
-const MENU_KB_WH_PER_DAY = 'Настроить часы по дням';
-const MENU_KB_WH_SKIP = 'Пропустить';
+const MENU_KB_WH_PER_DAY = 'Налаштувати годинник за днями';
+const MENU_KB_WH_SKIP = 'Пропустити';
 const MENU_KB_WH_DONE_TO_MENU = 'Готово — меню';
-const WH_KB_DAY_CLOSED = 'Выходной';
-const WH_KB_DAY_SET_HOURS = 'Задать часы';
-const MENU_DAY_TODAY = 'Сегодня';
+const WH_KB_DAY_CLOSED = 'Вихідний';
+const WH_KB_DAY_SET_HOURS = 'Налаштувати годинник';
+const MENU_DAY_TODAY = 'Сьогодні';
 const MENU_DAY_TOMORROW = 'Завтра';
 /** Шаг брони: ищете партнёров. */
-const BOOK_KB_LOOKING_YES = 'Да';
-const BOOK_KB_LOOKING_NO = 'Нет';
-const RULES_ACCEPT_KB = 'Принимаю правила';
+const BOOK_KB_LOOKING_YES = 'Так';
+const BOOK_KB_LOOKING_NO = 'Ні';
+const RULES_ACCEPT_KB = 'Погоджуюся з правилами';
 /** Макс. длина одного сообщения с фрагментом правил (запас под лимит Telegram). */
 const RULES_MESSAGE_CHUNK = 3800;
 
 /** Участнику при закрытом окне бронирования (сразу после «Забронировать» и перед выбором дня). */
-const MSG_NO_SLOTS_BOOKING_WINDOW = 'Сейчас бронирование не доступно.';
+const MSG_NO_SLOTS_BOOKING_WINDOW = 'Наразі бронювання недоступне.';
 
-const SETUP_KB_USE_CHAT_TITLE = 'Название как в чате';
+const SETUP_KB_USE_CHAT_TITLE = 'Назва, як у чаті';
 /** При повторном /setup: оставить имя площадки из БД, не подставлять название чата Telegram. */
-const SETUP_KB_KEEP_BOT_NAME = 'Оставить название как сейчас';
-const SETUP_KB_KEEP_ADDRESS = 'Оставить адрес как сейчас';
-const SETUP_KB_NO_ADDRESS = 'Без адреса';
-const SETUP_KB_CANCEL = '« Отмена';
-const SETUP_KB_VENUES = 'Площадки';
-const SETUP_KB_BOOKING_WINDOW = 'Время бронирования в группе';
-const SETUP_KB_BOOKING_LIMIT = 'Лимит на бронирование';
-const LIMIT_KB_UNLIMITED = 'Без лимита';
-const BW_KB_END_MIDNIGHT = '24:00 — конец дня';
-const SETUP_KB_NEW_RESOURCE = '➕ Добавить площадку';
+const SETUP_KB_KEEP_BOT_NAME = 'Залишити назву без змін';
+const SETUP_KB_KEEP_ADDRESS = 'Залишити адресу без змін';
+const SETUP_KB_NO_ADDRESS = 'Без адреси';
+const SETUP_KB_CANCEL = '« Скасування';
+const SETUP_KB_VENUES = 'Майданчики';
+const SETUP_KB_BOOKING_WINDOW = 'Час бронювання в групі';
+const SETUP_KB_BOOKING_LIMIT = 'Ліміт на бронювання';
+const LIMIT_KB_UNLIMITED = 'Без обмежень';
+const BW_KB_END_MIDNIGHT = '24:00 — кінець дня';
+const SETUP_KB_NEW_RESOURCE = '➕ Додати майданчик';
 const SETUP_KB_RESOURCE_ACTIVE = 'Активна';
 const SETUP_KB_RESOURCE_INACTIVE = 'Не активна';
 
 /** ISO weekday 1–7 → подпись (Пн…Вс). */
-const WH_ISO_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'] as const;
+const WH_ISO_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд'] as const;
 
 interface SetupDraft {
   /** 0 — выбор площадки или создание новой. */
@@ -267,7 +267,7 @@ export class BotUpdate {
   }
 
   private setupStepLine(step: number, draft: SetupDraft): string {
-    return `Шаг ${step}/${this.setupStepMax(draft)}`;
+    return `Крок ${step}/${this.setupStepMax(draft)}`;
   }
 
   private bookableResources<T extends { visibility: ResourceVisibility }>(
@@ -345,12 +345,12 @@ export class BotUpdate {
 
   private durationLabel(min: number): string {
     if (min === 60) {
-      return '1 ч';
+      return '1 г';
     }
     if (min === 90) {
-      return '1.5 ч';
+      return '1.5 г';
     }
-    return '2 ч';
+    return '2 г';
   }
 
   private durationPickReplyMarkup(minutes: number[]) {
@@ -386,7 +386,7 @@ export class BotUpdate {
     const a = formatInTimeZone(r.startTime, r.timeZone, 'HH:mm');
     const z = formatInTimeZone(r.endTime, r.timeZone, 'HH:mm');
     const timePart = `${day} ${a}–${z}`;
-    const cancelSuffix = ` · Отменить?`;
+    const cancelSuffix = ` · Скасувати?`;
     const sep = ' · ';
     let res = r.resourceName.trim() || '—';
     let label = `${timePart}${sep}${res}${cancelSuffix}`;
@@ -410,15 +410,15 @@ export class BotUpdate {
     endTime: Date;
     timeZone: string;
     resourceName: string;
-    sportNameRu: string;
+    sportNameUa: string;
     playersNeeded: number;
   }): string {
     const day = formatInTimeZone(item.startTime, item.timeZone, 'dd.MM');
     const a = formatInTimeZone(item.startTime, item.timeZone, 'HH:mm');
     const z = formatInTimeZone(item.endTime, item.timeZone, 'HH:mm');
-    const sport = item.sportNameRu.trim() || '—';
+    const sport = item.sportNameUa.trim() || '—';
     const res = item.resourceName.trim() || '—';
-    const tail = `ещё ${item.playersNeeded}`;
+    const tail = `ще ${item.playersNeeded}`;
     let label = `${day} ${a}–${z} · ${sport} · ${res} · ${tail}`;
     if (label.length > 64) {
       label = `${day} ${a}–${z} · … · ${tail}`.slice(0, 64);
@@ -448,7 +448,7 @@ export class BotUpdate {
       endTime: Date;
       timeZone: string;
       resourceName: string;
-      sportNameRu: string;
+      sportNameUa: string;
       playersNeeded: number;
     }[],
   ) {
@@ -474,7 +474,7 @@ export class BotUpdate {
     const addr = r.address?.trim();
     let line = addr ? `${prefix} (${addr})` : prefix;
     if (opts?.markInactive && r.visibility === ResourceVisibility.INACTIVE) {
-      line = `${line} · не в брони`;
+      line = `${line} · Неактивна`;
     }
     return line.slice(0, 64);
   }
@@ -554,7 +554,7 @@ export class BotUpdate {
         return;
       case 'book_sport':
         this.resetMenuState(ctx);
-        await ctx.reply('Главное меню:', await this.mainMenuReplyMarkup(ctx));
+        await ctx.reply('Головне меню:', await this.mainMenuReplyMarkup(ctx));
         return;
       case 'book_res': {
         if (s.sportKindCode !== undefined) {
@@ -567,18 +567,18 @@ export class BotUpdate {
           }
           this.setMenuState(ctx, { t: 'book_sport' });
           await ctx.reply(
-            'Выберите вид спорта:',
+            'Оберіть вид спорту:',
             this.sportPickReplyMarkup(this.allSportKindCodesForPicker()),
           );
           return;
         }
         this.resetMenuState(ctx);
-        await ctx.reply('Главное меню:', await this.mainMenuReplyMarkup(ctx));
+        await ctx.reply('Головне меню:', await this.mainMenuReplyMarkup(ctx));
         return;
       }
       case 'grid_res':
         this.resetMenuState(ctx);
-        await ctx.reply('Главное меню:', await this.mainMenuReplyMarkup(ctx));
+        await ctx.reply('Головне меню:', await this.mainMenuReplyMarkup(ctx));
         return;
       case 'book_day': {
         const comm = await this.community.findByTelegramChatId(chatId);
@@ -593,7 +593,7 @@ export class BotUpdate {
             }
             this.setMenuState(ctx, { t: 'book_sport' });
             await ctx.reply(
-              'Выберите вид спорта:',
+              'Оберіть вид спорту:',
               this.sportPickReplyMarkup(this.allSportKindCodesForPicker()),
             );
             return;
@@ -603,7 +603,7 @@ export class BotUpdate {
             sportKindCode: s.sportKindCode,
           });
           await ctx.reply(
-            'Выберите площадку:',
+            'Оберіть майданчик:',
             this.resourcePickReplyMarkup(list, admin),
           );
           return;
@@ -611,12 +611,12 @@ export class BotUpdate {
         const visible = this.bookableResources(comm.resources, admin);
         if (visible.length <= 1) {
           this.resetMenuState(ctx);
-          await ctx.reply('Главное меню:', await this.mainMenuReplyMarkup(ctx));
+          await ctx.reply('Головне меню:', await this.mainMenuReplyMarkup(ctx));
         } else {
           this.setMenuState(ctx, { t: 'book_res' });
           const list = await this.resourcesForBookingUi(chatId, admin);
           await ctx.reply(
-            'Выберите площадку:',
+            'Оберіть майданчик:',
             this.resourcePickReplyMarkup(list, admin),
           );
         }
@@ -630,7 +630,7 @@ export class BotUpdate {
             ? { sportKindCode: s.sportKindCode }
             : {}),
         });
-        await ctx.reply('Выберите день:', this.dayPickReplyMarkup());
+        await ctx.reply('Виберіть день:', this.dayPickReplyMarkup());
         return;
       }
       case 'book_dur': {
@@ -643,7 +643,7 @@ export class BotUpdate {
         if (starts.length === 0) {
           this.resetMenuState(ctx);
           await ctx.reply(
-            'Нет свободных интервалов.',
+            'Немає вільних інтервалів.',
             await this.mainMenuReplyMarkup(ctx),
           );
           return;
@@ -658,8 +658,8 @@ export class BotUpdate {
         });
         await ctx.reply(
           s.dayOffset === 0
-            ? 'Сегодня — выберите время начала:'
-            : 'Завтра — выберите время начала:',
+            ? 'Сьогодні — виберіть час початку:'
+            : 'Завтра — оберіть час початку:',
           this.hoursPickReplyMarkup(starts),
         );
         return;
@@ -674,7 +674,7 @@ export class BotUpdate {
         if (starts.length === 0) {
           this.resetMenuState(ctx);
           await ctx.reply(
-            'Нет свободных интервалов.',
+            'Немає вільних інтервалів.',
             await this.mainMenuReplyMarkup(ctx),
           );
           return;
@@ -697,7 +697,7 @@ export class BotUpdate {
               : {}),
           });
           await ctx.reply(
-            'На это время нет подходящей длительности. Выберите другой день.',
+            'Наразі немає відповідного періоду. Оберіть інший день.',
             this.dayPickReplyMarkup(),
           );
           return;
@@ -713,7 +713,7 @@ export class BotUpdate {
             : {}),
         });
         await ctx.reply(
-          `Начало ${String(s.hour).padStart(2, '0')}:${String(s.startMinute).padStart(2, '0')} — выберите длительность:`,
+          `Початок ${String(s.hour).padStart(2, '0')}:${String(s.startMinute).padStart(2, '0')} — виберіть тривалість:`,
           this.durationPickReplyMarkup(durs),
         );
         return;
@@ -731,7 +731,7 @@ export class BotUpdate {
             : {}),
         });
         await ctx.reply(
-          'Ищете партнёров для этой брони?',
+          'Шукаєте партнерів для цієї броні?',
           this.lookingForPlayersReplyMarkup(),
         );
         return;
@@ -744,12 +744,12 @@ export class BotUpdate {
         const visible = this.bookableResources(comm.resources, admin);
         if (visible.length <= 1) {
           this.resetMenuState(ctx);
-          await ctx.reply('Главное меню:', await this.mainMenuReplyMarkup(ctx));
+          await ctx.reply('Головне меню:', await this.mainMenuReplyMarkup(ctx));
         } else {
           this.setMenuState(ctx, { t: 'grid_res' });
           const list = await this.resourcesForBookingUi(chatId, admin);
           await ctx.reply(
-            'Расписание — выберите площадку:',
+            'Розклад — оберіть майданчик:',
             this.resourcePickReplyMarkup(list, admin),
           );
         }
@@ -758,11 +758,11 @@ export class BotUpdate {
       case 'list':
       case 'free_slots':
         this.resetMenuState(ctx);
-        await ctx.reply('Главное меню:', await this.mainMenuReplyMarkup(ctx));
+        await ctx.reply('Головне меню:', await this.mainMenuReplyMarkup(ctx));
         return;
       default:
         this.resetMenuState(ctx);
-        await ctx.reply('Главное меню:', await this.mainMenuReplyMarkup(ctx));
+        await ctx.reply('Головне меню:', await this.mainMenuReplyMarkup(ctx));
     }
   }
 
@@ -783,7 +783,7 @@ export class BotUpdate {
           text === MENU_KB_FREE_SLOTS
         ) {
           await ctx.reply(
-            'Сначала примите правила сообщества — кнопка «Принимаю правила» в личке с ботом (или в группе, если правила пришли туда).',
+            'Спочатку прийміть правила спільноти — натисніть кнопку «Приймаю правила» у приватних повідомленнях з ботом (або у групі, якщо правила надійшли туди).',
             await this.mainMenuReplyMarkup(ctx),
           );
           return;
@@ -797,7 +797,7 @@ export class BotUpdate {
       const visible = comm ? this.bookableResources(comm.resources, admin) : [];
       if (!comm || visible.length === 0) {
         await ctx.reply(
-          'Площадка не настроена или нет активных площадок для брони. Администратору: /setup.',
+          'Платформа не налаштована або немає активних платформ для бронювання. Адміністратору: /setup.',
           await this.mainMenuReplyMarkup(ctx),
         );
         return;
@@ -809,7 +809,7 @@ export class BotUpdate {
       }
       this.setMenuState(ctx, { t: 'book_sport' });
       await ctx.reply(
-        'Выберите вид спорта:',
+        'Оберіть вид спорту:',
         this.sportPickReplyMarkup(this.allSportKindCodesForPicker()),
       );
       return;
@@ -822,7 +822,7 @@ export class BotUpdate {
       });
       if (rows.length === 0) {
         await ctx.reply(
-          'У вас нет активных бронирований в этом чате.',
+          'У вас немає активних бронювань у цьому чаті.',
           await this.mainMenuReplyMarkup(ctx),
         );
         return;
@@ -842,7 +842,7 @@ export class BotUpdate {
         rowLabels,
       });
       await ctx.reply(
-        'Ваши бронирования — нажмите строку с датой и временем, чтобы отменить:',
+        'Ваші бронювання — натисніть на рядок із датою та часом, щоб скасувати:',
         this.listBookingsReplyMarkup(listItems),
       );
       return;
@@ -854,7 +854,7 @@ export class BotUpdate {
       const visible = comm ? this.bookableResources(comm.resources, admin) : [];
       if (!comm || visible.length === 0) {
         await ctx.reply(
-          'Площадка не настроена или нет активных площадок. Администратору: /setup.',
+          'Площадка не налаштована або немає активних майданчиків. Адміністратору: /setup.',
           await this.mainMenuReplyMarkup(ctx),
         );
         return;
@@ -864,13 +864,13 @@ export class BotUpdate {
           t: 'grid_day',
           resourceId: visible[0].id,
         });
-        await ctx.reply('Расписание для какого дня?', this.dayPickReplyMarkup());
+        await ctx.reply('Розклад на який день?', this.dayPickReplyMarkup());
         return;
       }
       this.setMenuState(ctx, { t: 'grid_res' });
       const list = await this.resourcesForBookingUi(chatId, admin);
       await ctx.reply(
-        'Расписание — выберите площадку:',
+        'Розклад — оберіть майданчик:',
         this.resourcePickReplyMarkup(list, admin),
       );
       return;
@@ -880,7 +880,7 @@ export class BotUpdate {
       const comm = await this.community.findByTelegramChatId(chatId);
       if (!comm) {
         await ctx.reply(
-          'Площадка не настроена. Администратору: /setup.',
+          'Майданчик не налаштований. Адміністратору: /setup.',
           await this.mainMenuReplyMarkup(ctx),
         );
         return;
@@ -890,7 +890,7 @@ export class BotUpdate {
       });
       if (rows.length === 0) {
         await ctx.reply(
-          'Сейчас никто не ищет партнёров по будущим играм в этой группе.',
+          'Наразі ніхто не шукає партнерів для майбутніх ігор у цій групі.',
           await this.mainMenuReplyMarkup(ctx),
         );
         return;
@@ -900,7 +900,7 @@ export class BotUpdate {
         endTime: r.endTime,
         timeZone: r.resource.timeZone,
         resourceName: r.resource.name,
-        sportNameRu: r.sportKind.nameRu,
+        sportNameUa: r.sportKind.nameUa,
         playersNeeded: r.requiredPlayers,
       }));
       const rowLabels = listItems.map((item) =>
@@ -912,7 +912,7 @@ export class BotUpdate {
         rowLabels,
       });
       await ctx.reply(
-        'Свободные места — нажмите строку, чтобы присоединиться к игре (список обновится):',
+        'Вільні місця — натисніть на рядок, щоб приєднатися до гри (список оновиться):',
         this.freeSlotsReplyMarkup(listItems),
       );
       return;
@@ -933,7 +933,7 @@ export class BotUpdate {
     const list = await this.resourcesForBookingUi(BigInt(ctx.chat!.id), admin);
     const r = list[idx];
     if (!r) {
-      await ctx.reply('Выберите номер из списка.');
+      await ctx.reply('Виберіть номер зі списку.');
       return;
     }
     const comm = await this.community.findByTelegramChatId(
@@ -952,7 +952,7 @@ export class BotUpdate {
         ? { sportKindCode: state.sportKindCode }
         : {}),
     });
-    await ctx.reply('Выберите день:', this.dayPickReplyMarkup());
+    await ctx.reply('Виберіть день:', this.dayPickReplyMarkup());
   }
 
   private async handleBookSportPick(ctx: Context, text: string) {
@@ -969,7 +969,7 @@ export class BotUpdate {
     const list = await this.resourcesForBookingUi(chatId, admin);
     if (list.length === 0) {
       await ctx.reply(
-        'Нет площадок для бронирования. Попросите администратора выполнить /setup.',
+        'Немає майданчиків для бронювання. Попросіть адміністратора виконати /setup.',
         await this.mainMenuReplyMarkup(ctx),
       );
       return;
@@ -983,12 +983,12 @@ export class BotUpdate {
         resourceId: list[0].id,
         sportKindCode: kindCode,
       });
-      await ctx.reply('Выберите день:', this.dayPickReplyMarkup());
+      await ctx.reply('Виберіть день:', this.dayPickReplyMarkup());
       return;
     }
     this.setMenuState(ctx, { t: 'book_res', sportKindCode: kindCode });
     await ctx.reply(
-      'Выберите площадку:',
+      'Оберіть майданчик:',
       this.resourcePickReplyMarkup(list, admin),
     );
   }
@@ -1003,11 +1003,11 @@ export class BotUpdate {
     const list = await this.resourcesForBookingUi(BigInt(ctx.chat!.id), admin);
     const r = list[idx];
     if (!r) {
-      await ctx.reply('Выберите номер из списка.');
+      await ctx.reply('Виберіть номер зі списку.');
       return;
     }
     this.setMenuState(ctx, { t: 'grid_day', resourceId: r.id });
-    await ctx.reply('Расписание для какого дня?', this.dayPickReplyMarkup());
+    await ctx.reply('Розклад на який день?', this.dayPickReplyMarkup());
   }
 
   private async handleBookDayPick(
@@ -1050,8 +1050,8 @@ export class BotUpdate {
     });
     await ctx.reply(
       dayOffset === 0
-        ? 'Сегодня — выберите время начала:'
-        : 'Завтра — выберите время начала:',
+        ? 'Сьогодні — виберіть час початку:'
+        : 'Завтра — оберіть час початку:',
       this.hoursPickReplyMarkup(starts),
     );
   }
@@ -1079,7 +1079,7 @@ export class BotUpdate {
       (s) => s.hour === hour && s.minute === startMinute,
     );
     if (!picked) {
-      await ctx.reply('Это время недоступно.');
+      await ctx.reply('Цей час недоступний.');
       return;
     }
     const durs = await this.booking.getAvailableDurationsMinutes({
@@ -1100,7 +1100,7 @@ export class BotUpdate {
           : {}),
       });
       await ctx.reply(
-        'На это время нет подходящей длительности. Выберите другой день.',
+        'Наразі немає відповідної тривалості. Оберіть інший день.',
         this.dayPickReplyMarkup(),
       );
       return;
@@ -1116,7 +1116,7 @@ export class BotUpdate {
         : {}),
     });
     await ctx.reply(
-      `Начало ${String(hour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')} — выберите длительность:`,
+      `Початок ${String(hour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')} — виберіть тривалість:`,
       this.durationPickReplyMarkup(durs),
     );
   }
@@ -1160,17 +1160,17 @@ export class BotUpdate {
       const z = formatInTimeZone(endTime, timeZone, 'HH:mm');
       const tail =
         players.isLookingForPlayers && players.requiredPlayers > 0
-          ? ` Ищу партнёров: нужно ещё ${players.requiredPlayers} чел.`
+          ? ` Шукаю партнерів: потрібно ще ${players.requiredPlayers} чол.`
           : '';
       await this.replyWithMainMenu(
         ctx,
-        `Бронирование добавлено: «${resourceName}», ${a}–${z}.${tail}`,
+        `Бронювання додано: «${resourceName}», ${a}–${z}.${tail}`,
       );
     } catch (e) {
       if (e instanceof SlotTakenError) {
         await this.replyWithMainMenu(
           ctx,
-          'Этот интервал только что заняли. Выберите другое время.',
+          'Цей час щойно зайнято. Оберіть інший час.',
         );
         return;
       }
@@ -1183,7 +1183,7 @@ export class BotUpdate {
             : {}),
         });
         await ctx.reply(
-          'Это время уже прошло. Выберите другой день.',
+          'Цей час уже минув. Оберіть інший день.',
           this.dayPickReplyMarkup(),
         );
         return;
@@ -1191,21 +1191,21 @@ export class BotUpdate {
       if (e instanceof BookingWindowClosedError) {
         await this.replyWithMainMenu(
           ctx,
-          'Сейчас нельзя оформить бронь: действует ограничение по времени. Попробуйте в интервал, который задал администратор (Настройки → «Время бронирования в группе»).',
+          'Зараз неможливо оформити бронювання: діє обмеження за часом. Спробуйте в проміжку часу, який встановив адміністратор (Налаштування → «Час бронювання в групі»).',
         );
         return;
       }
       if (e instanceof UserDailyBookingLimitExceededError) {
         await this.replyWithMainMenu(
           ctx,
-          'Превышен лимит бронирования на этот день для вашего аккаунта в группе. Подробности у администратора (Настройки → «Лимит на бронирование»).',
+          'Для вашого облікового запису в групі перевищено ліміт бронювання на цей день. Детальніше — у адміністратора (Налаштування → «Ліміт на бронювання»).',
         );
         return;
       }
       this.logger.error(e instanceof Error ? e.message : e);
       await this.replyWithMainMenu(
         ctx,
-        'Не удалось создать бронь. Попробуйте ещё раз.',
+        'Не вдалося створити бронювання. Спробуйте ще раз.',
       );
     }
   }
@@ -1216,9 +1216,9 @@ export class BotUpdate {
     state: Extract<MenuState, { t: 'book_dur' }>,
   ) {
     const map: Record<string, BookingDurationMinutes> = {
-      '1 ч': 60,
-      '1.5 ч': 90,
-      '2 ч': 120,
+      '1 г': 60,
+      '1.5 г': 90,
+      '2 г': 120,
     };
     const durationMinutes = map[text];
     if (!durationMinutes) {
@@ -1236,7 +1236,7 @@ export class BotUpdate {
         : {}),
     });
     await ctx.reply(
-      'Ищете партнёров для этой брони?',
+      'Шукаєте партнерів для цієї броні?',
       this.lookingForPlayersReplyMarkup(),
     );
   }
@@ -1266,12 +1266,12 @@ export class BotUpdate {
           : {}),
       });
       await ctx.reply(
-        'Сколько человек вы ищете? Введите число от 1 до 50.',
+        'Скільки осіб ви шукаєте? Введіть число від 1 до 50.',
         this.playersCountPromptReplyMarkup(),
       );
       return;
     }
-    await ctx.reply('Нажмите «Да» или «Нет».', this.lookingForPlayersReplyMarkup());
+    await ctx.reply('Натисніть «Так» або «Ні».', this.lookingForPlayersReplyMarkup());
   }
 
   private async handleBookPlayersPick(
@@ -1282,7 +1282,7 @@ export class BotUpdate {
     const raw = text.trim();
     if (!/^\d+$/.test(raw)) {
       await ctx.reply(
-        'Нужно целое число от 1 до 50.',
+        'Потрібно ціле число від 1 до 50.',
         this.playersCountPromptReplyMarkup(),
       );
       return;
@@ -1290,7 +1290,7 @@ export class BotUpdate {
     const n = Number(raw);
     if (n < 1 || n > 50) {
       await ctx.reply(
-        'Нужно целое число от 1 до 50.',
+        'Потрібно ціле число від 1 до 50.',
         this.playersCountPromptReplyMarkup(),
       );
       return;
@@ -1355,12 +1355,12 @@ export class BotUpdate {
           );
         }
       }
-      await this.replyWithMainMenu(ctx, 'Бронирование отменено.');
+      await this.replyWithMainMenu(ctx, 'Бронювання скасовано.');
     } catch (e) {
       if (e instanceof BookingNotFoundError) {
         await this.replyWithMainMenu(
           ctx,
-          'Запись не найдена или уже отменена.',
+          'Запис не знайдено або вже скасовано.',
         );
         return;
       }
@@ -1375,7 +1375,7 @@ export class BotUpdate {
       timeZone: string;
       startTime: Date;
       endTime: Date;
-      sportNameRu: string;
+      sportNameUa: string;
     };
     yourPeopleCount: number;
   }): string {
@@ -1385,19 +1385,19 @@ export class BotUpdate {
     const z = formatInTimeZone(dm.endTime, dm.timeZone, 'HH:mm');
     const addr = dm.address?.trim()
       ? dm.address.trim()
-      : 'не указан — уточните у организатора в группе';
+      : 'не вказано — дізнайтеся в організатора у групі';
     const peopleLine =
       yourPeopleCount === 1
-        ? 'С вашей стороны учтён 1 человек (вы).'
-        : `С вашей стороны учтено человек: ${yourPeopleCount}.`;
+        ? 'З вашого боку враховано 1 особу (вас).'
+        : `З вашого боку враховано осіб: ${yourPeopleCount}.`;
 
     return (
-      `Вы в списке на игру.\n\n${peopleLine}\n\n` +
-      `Где: «${dm.resourceName}»\n` +
-      `Адрес: ${addr}\n` +
-      `Когда: ${day} ${a}–${z} (${dm.timeZone})\n` +
-      `Спорт: ${dm.sportNameRu}\n\n` +
-      `Сохраните этот диалог — сюда же могут приходить напоминания.`
+      `Ви в списку учасників гри.\n\n${peopleLine}\n\n` +
+      `Де: «${dm.resourceName}»\n` +
+      `Адреса: ${addr}\n` +
+      `Коли: ${day} ${a}–${z} (${dm.timeZone})\n` +
+      `Спорт: ${dm.sportNameUa}\n\n` +
+      `Збережіть цей діалог — сюди також можуть надходити нагадування.`
     );
   }
 
@@ -1412,7 +1412,7 @@ export class BotUpdate {
         timeZone: string;
         startTime: Date;
         endTime: Date;
-        sportNameRu: string;
+        sportNameUa: string;
       };
       yourPeopleCount: number;
     },
@@ -1483,7 +1483,7 @@ export class BotUpdate {
         if (rows.length === 0) {
           await this.replyWithMainMenu(
             ctx,
-            'Эта игра уже набрала состав или слот недоступен.',
+            'Ця гра вже набрала склад або слот недоступний.',
           );
           return;
         }
@@ -1492,7 +1492,7 @@ export class BotUpdate {
           endTime: r.endTime,
           timeZone: r.resource.timeZone,
           resourceName: r.resource.name,
-          sportNameRu: r.sportKind.nameRu,
+          sportNameUa: r.sportKind.nameUa,
           playersNeeded: r.requiredPlayers,
         }));
         const rowLabels = listItems.map((item) =>
@@ -1504,7 +1504,7 @@ export class BotUpdate {
           rowLabels,
         });
         await ctx.reply(
-          'Список устарел — обновили. Выберите слот снова:',
+          'Список застарів — його оновлено. Виберіть слот знову:',
           this.freeSlotsReplyMarkup(listItems),
         );
         return;
@@ -1520,7 +1520,7 @@ export class BotUpdate {
     if (rows.length === 0) {
       await this.replyWithMainMenu(
         ctx,
-        'Вас учли в составе. Детали игры отправил в личные сообщения. Открытых мест для набора больше нет.',
+        'Вас включили до складу. Деталі гри надіслав у приватних повідомленнях. Вільних місць для набору більше немає.',
       );
       return;
     }
@@ -1529,7 +1529,7 @@ export class BotUpdate {
       endTime: r.endTime,
       timeZone: r.resource.timeZone,
       resourceName: r.resource.name,
-      sportNameRu: r.sportKind.nameRu,
+      sportNameUa: r.sportKind.nameUa,
       playersNeeded: r.requiredPlayers,
     }));
     const rowLabels = listItems.map((item) =>
@@ -1541,7 +1541,7 @@ export class BotUpdate {
       rowLabels,
     });
     await ctx.reply(
-      'Вас учли в составе. Когда и где вас ждут — в личных сообщениях со мной. Можно выбрать ещё слот или «Главное меню»:',
+      'Вас включили до складу. Коли і де на вас чекають — у особистих повідомленнях від мене. Можна вибрати ще один слот або «Головне меню»:',
       this.freeSlotsReplyMarkup(listItems),
     );
   }
@@ -1582,7 +1582,7 @@ export class BotUpdate {
         this.whDmStateByUser.delete(uid);
         await ctx.reply(
           text === MENU_KB_WH_SKIP
-            ? 'Ок, для всех дней остаётся как при сохранении.'
+            ? 'Гаразд, для всіх днів залишається так само, як при збереженні.'
             : 'Меню:',
           await mainKb(st.groupChatId),
         );
@@ -1592,7 +1592,7 @@ export class BotUpdate {
         if (!(await adminOk(st.groupChatId))) {
           this.whDmStateByUser.delete(uid);
           await ctx.reply(
-            'Нет прав администратора в этой группе.',
+            'Не має прав адміністратора в цій групі.',
             await mainKb(st.groupChatId),
           );
           return;
@@ -1603,13 +1603,13 @@ export class BotUpdate {
           resourceId: st.resourceId,
         });
         await ctx.reply(
-          'Выберите день недели (Пн — понедельник). Изменения сохраняются сразу.',
+          'Виберіть день тижня (Пн — понеділок). Зміни зберігаються одразу.',
           this.whPickDayReplyMarkup(),
         );
         return;
       }
       await ctx.reply(
-        'Сначала нажмите «Пропустить» или «Настроить часы по дням».',
+        'Спочатку натисніть «Пропустити» або «Налаштувати годинник за днями».',
       );
       return;
     }
@@ -1626,7 +1626,7 @@ export class BotUpdate {
       if (isoIdx >= 0) {
         if (!(await adminOk(st.groupChatId))) {
           this.whDmStateByUser.delete(uid);
-          await ctx.reply('Нет прав.', await mainKb(st.groupChatId));
+          await ctx.reply('Немає прав.', await mainKb(st.groupChatId));
           return;
         }
         const weekday = isoIdx + 1;
@@ -1644,11 +1644,11 @@ export class BotUpdate {
         const dayName = WH_ISO_LABELS[isoIdx];
         const body =
           `${dayName}.\n${this.whDayStatusLine(row)}\n\n` +
-          `«Выходной» — нет слотов. «Задать часы» — как в /setup.`;
+          `«Вихідний» — немає слотів. «Встановити годинник» — як в /setup.`;
         await ctx.reply(body, this.whDayActionsReplyMarkup());
         return;
       }
-      await ctx.reply('Выберите день кнопкой или «Готово — меню».');
+      await ctx.reply('Виберіть день за допомогою кнопки або «Готово — меню».');
       return;
     }
 
@@ -1659,13 +1659,13 @@ export class BotUpdate {
           groupChatId: st.groupChatId,
           resourceId: st.resourceId,
         });
-        await ctx.reply('Выберите день недели:', this.whPickDayReplyMarkup());
+        await ctx.reply('Виберіть день тижня:', this.whPickDayReplyMarkup());
         return;
       }
       if (text === WH_KB_DAY_CLOSED) {
         if (!(await adminOk(st.groupChatId))) {
           this.whDmStateByUser.delete(uid);
-          await ctx.reply('Нет прав.', await mainKb(st.groupChatId));
+          await ctx.reply('Немає прав.', await mainKb(st.groupChatId));
           return;
         }
         try {
@@ -1677,7 +1677,7 @@ export class BotUpdate {
           });
         } catch (e) {
           this.logger.error(e instanceof Error ? e.message : e);
-          await ctx.reply('Не удалось сохранить.');
+          await ctx.reply('Не вдалося зберегти.');
           return;
         }
         this.whDmStateByUser.set(uid, {
@@ -1686,7 +1686,7 @@ export class BotUpdate {
           resourceId: st.resourceId,
         });
         await ctx.reply(
-          'Сохранено: выходной. Выберите другой день или «Готово — меню».',
+          'Збережено: вихідний. Оберіть інший день або «Готово — меню».',
           this.whPickDayReplyMarkup(),
         );
         return;
@@ -1694,7 +1694,7 @@ export class BotUpdate {
       if (text === WH_KB_DAY_SET_HOURS) {
         if (!(await adminOk(st.groupChatId))) {
           this.whDmStateByUser.delete(uid);
-          await ctx.reply('Нет прав.', await mainKb(st.groupChatId));
+          await ctx.reply('Немає прав.', await mainKb(st.groupChatId));
           return;
         }
         this.whDmStateByUser.delete(uid);
@@ -1705,12 +1705,12 @@ export class BotUpdate {
           phase: 'start',
         });
         await ctx.reply(
-          `${WH_ISO_LABELS[st.weekday - 1]}: выберите час открытия (первое возможное начало слота).`,
+          `${WH_ISO_LABELS[st.weekday - 1]}: виберіть час початку (найближчий можливий час початку слоту).`,
           this.setupStartHourReplyMarkup(),
         );
         return;
       }
-      await ctx.reply('Нажмите одну из кнопок внизу.');
+      await ctx.reply('Натисніть одну з кнопок внизу.');
     }
   }
 
@@ -1733,7 +1733,7 @@ export class BotUpdate {
       });
       await ctx.telegram.sendMessage(
         uid,
-        'Выберите день недели:',
+        'Виберіть день тижня:',
         this.whPickDayReplyMarkup(),
       );
       return;
@@ -1743,7 +1743,7 @@ export class BotUpdate {
       delete draft.slotStart;
       this.whPerDayEditByUser.set(uid, draft);
       await ctx.reply(
-        `${WH_ISO_LABELS[draft.weekday - 1]}: выберите час открытия (первое возможное начало слота).`,
+        `${WH_ISO_LABELS[draft.weekday - 1]}: виберіть час початку (найближчий можливий час початку слоту).`,
         this.setupStartHourReplyMarkup(),
       );
       return;
@@ -1751,26 +1751,26 @@ export class BotUpdate {
     if (draft.phase === 'start') {
       const hm = text.match(/^(\d{1,2}):00$/);
       if (!hm) {
-        await ctx.reply('Выберите час открытия из кнопок (00:00–22:00).');
+        await ctx.reply('Виберіть час відкриття за допомогою кнопок (00:00–22:00).');
         return;
       }
       const hour = Number(hm[1]);
       if (!Number.isInteger(hour) || hour < 0 || hour > 22) {
-        await ctx.reply('Выберите час открытия от 00:00 до 22:00.');
+        await ctx.reply('Виберіть час відкриття від 00:00 до 22:00.');
         return;
       }
       draft.slotStart = hour;
       draft.phase = 'end';
       this.whPerDayEditByUser.set(uid, draft);
       await ctx.reply(
-        `${WH_ISO_LABELS[draft.weekday - 1]}: ко скольким всё должно завершиться (открытие: ${String(hour).padStart(2, '0')}:00)?`,
+        `${WH_ISO_LABELS[draft.weekday - 1]}: до якої дати все має завершитися (відкриття: ${String(hour).padStart(2, '0')}:00)?`,
         this.setupClosingHourReplyMarkup(hour),
       );
       return;
     }
     const hm = text.match(/^(\d{1,2}):00$/);
     if (!hm) {
-      await ctx.reply('Выберите час окончания из кнопок.');
+      await ctx.reply('Виберіть час закінчення за допомогою кнопок.');
       return;
     }
     const closeHour = Number(hm[1]);
@@ -1785,7 +1785,7 @@ export class BotUpdate {
     }
     if (closeHour <= start) {
       await ctx.reply(
-        'Окончание должно быть позже времени открытия. Выберите другой час.',
+        'Закінчення має бути пізніше часу початку. Оберіть інший час.',
       );
       return;
     }
@@ -1801,7 +1801,7 @@ export class BotUpdate {
       });
     } catch (e) {
       this.logger.error(e instanceof Error ? e.message : e);
-      await ctx.reply('Не удалось сохранить. Попробуйте ещё раз.');
+      await ctx.reply('Не вдалося зберегти. Спробуйте ще раз.');
       return;
     }
     this.whPerDayEditByUser.delete(uid);
@@ -1812,7 +1812,7 @@ export class BotUpdate {
     });
     await ctx.telegram.sendMessage(
       uid,
-      `Сохранено: ${WH_ISO_LABELS[draft.weekday - 1]} — слоты с ${String(start).padStart(2, '0')}:00. Выберите другой день или «Готово — меню».`,
+      `Збережено: ${WH_ISO_LABELS[draft.weekday - 1]} — слоти з ${String(start).padStart(2, '0')}:00. Виберіть інший день або «Готово — меню».`,
       this.whPickDayReplyMarkup(),
     );
   }
@@ -1848,7 +1848,7 @@ export class BotUpdate {
       const sk = `${bridged}:${uid}`;
       if (this.setupDrafts.has(sk)) {
         await ctx.reply(
-          `Настройка уже открыта — ответьте на сообщения мастера выше или нажмите ${SETUP_KB_CANCEL}.`,
+          `Налаштування вже відкрито — дайте відповідь на повідомлення майстра вище або натисніть ${SETUP_KB_CANCEL}.`,
         );
         return;
       }
@@ -1858,7 +1858,7 @@ export class BotUpdate {
     const gidStr = this.lastSetupGroupByUser.get(uid);
     if (!gidStr) {
       await ctx.reply(
-        'Чтобы открыть настройки площадок, один раз зайдите в группу и нажмите там «Настройки» или выполните /setup. После этого эта кнопка здесь снова откроет площадки.',
+        'Щоб відкрити налаштування майданчиків, зайдіть у групу та натисніть там «Налаштування» або виконайте команду /setup. Після цього ця кнопка знову відкриє майданчики.',
       );
       return;
     }
@@ -1885,7 +1885,7 @@ export class BotUpdate {
         e instanceof Error ? e.message : 'openSetup from DM failed',
       );
       await ctx.reply(
-        'Не удалось открыть настройку. Попробуйте снова из группы: /setup.',
+        'Не вдалося відкрити налаштування. Спробуйте ще раз із групи: /setup.',
       );
     }
   }
@@ -2011,7 +2011,7 @@ export class BotUpdate {
       this.clearSetupBridgeForGroup(ctx.from.id, String(ctx.chat.id));
       this.setupDrafts.delete(this.sk(ctx));
       this.resetMenuState(ctx);
-      await ctx.reply('Главное меню:', await this.mainMenuReplyMarkup(ctx));
+      await ctx.reply('Головне меню:', await this.mainMenuReplyMarkup(ctx));
       return;
     }
 
@@ -2021,7 +2021,7 @@ export class BotUpdate {
         this.setupBridgeGroupByUser.get(ctx.from.id) === String(ctx.chat.id)
       ) {
         await ctx.reply(
-          'Настройку продолжайте в личных сообщениях со мной — ответы там не видны в группе.',
+          'Продовжуйте налаштування в особистих повідомленнях зі мною — відповіді там не відображаються у групі.',
         );
         return;
       }
@@ -2164,11 +2164,11 @@ export class BotUpdate {
   }
 
   private setupHubButtonsHintText(): string {
-    return `«${SETUP_KB_VENUES}» — площадки, «${SETUP_KB_BOOKING_WINDOW}» — когда участники могут бронировать, «${SETUP_KB_BOOKING_LIMIT}» — лимит часов на одного пользователя по дням недели.`;
+    return `«${SETUP_KB_VENUES}» — майданчики, «${SETUP_KB_BOOKING_WINDOW}» — коли учасники можуть бронювати, «${SETUP_KB_BOOKING_LIMIT}» — ліміт годин на одного користувача за днями тижня.`;
   }
 
   private setupHubPromptText(chatTitle: string): string {
-    return `Настройка группы «${chatTitle}». ${this.setupHubButtonsHintText()}`;
+    return `Налаштування групи «${chatTitle}». ${this.setupHubButtonsHintText()}`;
   }
 
   private formatUserBookingLimitsSummary(
@@ -2181,10 +2181,10 @@ export class BotUpdate {
       const m = byDay.get(w);
       const v =
         m === undefined || m === null
-          ? 'без лимита'
+          ? 'без обмежень'
           : m === 0
-            ? '0 ч (нельзя)'
-            : `${m / 60} ч`;
+            ? '0 г (не можна)'
+            : `${m / 60} г`;
       lines.push(`${label}: ${v}`);
     }
     return lines.join('\n');
@@ -2251,7 +2251,7 @@ export class BotUpdate {
       if (wi < 0) {
         await this.sendSetupDm(
           ctx,
-          `Выберите день недели или «${MENU_KB_BACK}».`,
+          `Виберіть день тижня або «${MENU_KB_BACK}».`,
         );
         return true;
       }
@@ -2263,14 +2263,14 @@ export class BotUpdate {
       const row = limits.find((l) => l.weekday === draft.limitWeekdayDraft);
       const cur =
         row?.maxMinutes == null
-          ? 'без лимита'
+          ? 'без обмежень'
           : row.maxMinutes === 0
             ? '0 ч'
             : `${row.maxMinutes / 60} ч`;
       await this.sendSetupDm(
         ctx,
-        `${WH_ISO_LABELS[wi]}: сейчас ${cur}.\n\n` +
-          `Максимум часов брони одним аккаунтом в этот день недели (сумма по всем площадкам группы). При проверке берётся день недели и календарная дата начала брони в часовом поясе той площадки, на которую бронируют.\n\nВыберите лимит:`,
+        `${WH_ISO_LABELS[wi]}: зараз ${cur}.\n\n` +
+          `Максимальна кількість годин бронювання одним обліковим записом у цей день тижня (сума по всіх майданчиках групи). Під час перевірки враховується день тижня та календарна дата початку бронювання у часовому поясі того майданчика, на якому здійснюється бронювання.\n\nВиберіть ліміт:`,
         this.setupLimitHoursReplyMarkup(),
       );
       return true;
@@ -2284,7 +2284,7 @@ export class BotUpdate {
         await this.community.getUserBookingLimitsForChat(targetGroupChatId);
       await this.sendSetupDm(
         ctx,
-        `Лимит на бронирование по дням недели.\n\n${this.formatUserBookingLimitsSummary(limits)}\n\nВыберите день недели:`,
+        `Ліміт на бронювання за днями тижня.\n\n${this.formatUserBookingLimitsSummary(limits)}\n\nВиберіть день тижня:`,
         this.setupLimitWeekdayReplyMarkup(),
       );
       return true;
@@ -2302,14 +2302,14 @@ export class BotUpdate {
     } else {
       const m = text.match(/^(\d+) ч$/);
       if (!m) {
-        await this.sendSetupDm(ctx, 'Выберите вариант из списка.');
+        await this.sendSetupDm(ctx, 'Виберіть варіант зі списку.');
         return true;
       }
       const h = Number(m[1]);
       if (!Number.isInteger(h) || h < 0 || h > 24) {
         await this.sendSetupDm(
           ctx,
-          'Допустимо от 0 до 24 часов или «Без лимита».',
+          'Допустимо від 0 до 24 годин або «Без обмежень».',
         );
         return true;
       }
@@ -2324,7 +2324,7 @@ export class BotUpdate {
       });
     } catch (e) {
       this.logger.error(e instanceof Error ? e.message : e);
-      await this.sendSetupDm(ctx, 'Не удалось сохранить. Попробуйте ещё раз.');
+      await this.sendSetupDm(ctx, 'Не вдалося зберегти. Спробуйте ще раз.');
       return true;
     }
 
@@ -2335,7 +2335,7 @@ export class BotUpdate {
       await this.community.getUserBookingLimitsForChat(targetGroupChatId);
     await this.sendSetupDm(
       ctx,
-      `Сохранено. Текущие лимиты:\n\n${this.formatUserBookingLimitsSummary(limitsAfter)}\n\nВыберите другой день или «${MENU_KB_BACK}» в хаб.`,
+      `Збережено. Поточні ліміти:\n\n${this.formatUserBookingLimitsSummary(limitsAfter)}\n\nВиберіть інший день або «${MENU_KB_BACK}» в хаб.`,
       this.setupLimitWeekdayReplyMarkup(),
     );
     return true;
@@ -2349,8 +2349,8 @@ export class BotUpdate {
     const sh = c.bookingWindowStartHour;
     const eh = c.bookingWindowEndHour;
     const endLabel =
-      eh >= 24 ? '24:00 (полночь)' : `${String(eh).padStart(2, '0')}:00`;
-    return `с ${String(sh).padStart(2, '0')}:00 по ${endLabel}, пояс ${c.bookingWindowTimeZone}`;
+      eh >= 24 ? '24:00 (північ)' : `${String(eh).padStart(2, '0')}:00`;
+    return `з ${String(sh).padStart(2, '0')}:00 до ${endLabel}, пояс ${c.bookingWindowTimeZone}`;
   }
 
   private setupBwStartHourReplyMarkup() {
@@ -2418,7 +2418,7 @@ export class BotUpdate {
       if (tzIdx < 0) {
         await this.sendSetupDm(
           ctx,
-          `Выберите часовой пояс из списка или кнопку «${MENU_KB_BACK}».`,
+          `Виберіть часовий пояс зі списку або натисніть кнопку «${MENU_KB_BACK}».`,
         );
         return true;
       }
@@ -2427,7 +2427,7 @@ export class BotUpdate {
       this.setupDrafts.set(sk, draft);
       await this.sendSetupDm(
         ctx,
-        `Шаг 2/3: час начала окна (включительно), в поясе «${draft.bwTzDraft}»:`,
+        `Крок 2/3: час початку вікна (включно), у часовому поясі «${draft.bwTzDraft}»:`,
         this.setupBwStartHourReplyMarkup(),
       );
       return true;
@@ -2442,19 +2442,19 @@ export class BotUpdate {
           await this.community.findByTelegramChatId(targetGroupChatId);
         await this.sendSetupDm(
           ctx,
-          `Шаг 1/3: часовой пояс окна бронирования.\n\nТекущие настройки: ${comm ? this.formatBookingWindowSummary(comm) : '—'}.\n\nВыберите пояс:`,
+          `Крок 1/3: часовий пояс у вікні бронювання.\n\nПоточні налаштування: ${comm ? this.formatBookingWindowSummary(comm) : '—'}.\n\nОберіть пояс:`,
           this.setupTzReplyMarkup(),
         );
         return true;
       }
       const hm = text.match(/^(\d{1,2}):00$/);
       if (!hm) {
-        await this.sendSetupDm(ctx, 'Выберите час из списка.');
+        await this.sendSetupDm(ctx, 'Виберіть час зі списку.');
         return true;
       }
       const hour = Number(hm[1]);
       if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
-        await this.sendSetupDm(ctx, 'Выберите час от 00:00 до 23:00.');
+        await this.sendSetupDm(ctx, 'Виберіть час від 00:00 до 23:00.');
         return true;
       }
       draft.bwStartHourDraft = hour;
@@ -2462,7 +2462,7 @@ export class BotUpdate {
       this.setupDrafts.set(sk, draft);
       await this.sendSetupDm(
         ctx,
-        `Шаг 3/3: час окончания окна (конец не включается): после этого времени бронь будет недоступна. Начало окна: ${String(hour).padStart(2, '0')}:00.`,
+        `Крок 3/3: час закінчення періоду (кінець не вказується): після цього часу бронювання буде недоступним. Початок періоду: ${String(hour).padStart(2, '0')}:00.`,
         this.setupBwEndHourReplyMarkup(hour),
       );
       return true;
@@ -2474,7 +2474,7 @@ export class BotUpdate {
       this.setupDrafts.set(sk, draft);
       await this.sendSetupDm(
         ctx,
-        `Шаг 2/3: час начала окна (включительно), в поясе «${draft.bwTzDraft}»:`,
+        `Крок 2/3: час початку вікна (включно), у часовому поясі «${draft.bwTzDraft}»:`,
         this.setupBwStartHourReplyMarkup(),
       );
       return true;
@@ -2493,25 +2493,25 @@ export class BotUpdate {
     } else {
       const hm = text.match(/^(\d{1,2}):00$/);
       if (!hm) {
-        await this.sendSetupDm(ctx, 'Выберите время из списка.');
+        await this.sendSetupDm(ctx, 'Виберіть час зі списку.');
         return true;
       }
       endHour = Number(hm[1]);
       if (!Number.isInteger(endHour) || endHour < 1 || endHour > 23) {
-        await this.sendSetupDm(ctx, 'Некорректный час.');
+        await this.sendSetupDm(ctx, 'Неправильний час.');
         return true;
       }
       if (endHour <= start) {
         await this.sendSetupDm(
           ctx,
-          'Конец окна должен быть позже начала. Выберите более поздний час или «24:00 — конец дня».',
+          'Кінець періоду має бути пізніше за початок. Оберіть пізніший час або «24:00 — кінець дня».',
         );
         return true;
       }
     }
 
     if (endHour <= start) {
-      await this.sendSetupDm(ctx, 'Конец окна должен быть позже начала.');
+      await this.sendSetupDm(ctx, 'Кінець вікна має бути пізніше за початок.');
       return true;
     }
 
@@ -2526,7 +2526,7 @@ export class BotUpdate {
       this.logger.error(e instanceof Error ? e.message : e);
       await this.sendSetupDm(
         ctx,
-        'Не удалось сохранить настройки. Попробуйте ещё раз.',
+        'Не вдалося зберегти налаштування. Спробуйте ще раз.',
       );
       return true;
     }
@@ -2537,7 +2537,7 @@ export class BotUpdate {
     this.setupDrafts.set(sk, draft);
     await this.sendSetupDm(
       ctx,
-      `Готово: время бронирования в группе — ${this.formatBookingWindowSummary({
+      `Готово: час бронювання в групі — ${this.formatBookingWindowSummary({
         bookingWindowTimeZone: tz,
         bookingWindowStartHour: start,
         bookingWindowEndHour: endHour,
@@ -2581,33 +2581,33 @@ export class BotUpdate {
     const sm = opts.stepMax ?? 5;
     if (opts.newResource) {
       return (
-        `Шаг 1/${sm}: как назвать новую площадку в боте?\n\n` +
-        `Отправьте название одним сообщением (не пустое, до 200 символов).`
+        `Крок 1/${sm}: як назвати новий майданчик у боті?\n\n` +
+        `Надішліть назву одним повідомленням (не порожнє, до 200 символів).`
       );
     }
     const ctShort =
       chatTitle.length > 80 ? `${chatTitle.slice(0, 80)}…` : chatTitle;
     const ex = opts.existingResourceName;
     const tailExisting =
-      'Отправьте новое название сообщением или нажмите «Оставить название как сейчас», чтобы не менять имя в боте.';
+      'Надішліть нову назву у повідомленні або натисніть «Залишити назву без змін», щоб не змінювати ім’я в боті.';
     if (ex) {
       if (opts.multiFlow) {
         return (
-          `Шаг 1/${sm}: как назвать эту площадку в боте?\n` +
-          `Сейчас в боте она называется: «${ex}».\n\n` +
+          `Крок 1/${sm}: як назвати цей майданчик у боті?\n` +
+          `Зараз у боті вона називається: «${ex}».\n\n` +
           tailExisting
         );
       }
       return (
-        `Шаг 1/${sm}: как назвать площадку в боте?\n` +
-        `Сейчас в боте она называется: «${ex}».\n\n` +
+        `Крок 1/${sm}: як назвати цей майданчик у боті?\n` +
+        `Зараз у боті вона називається: «${ex}».\n\n` +
         tailExisting
       );
     }
     return (
-      `Шаг 1/${sm}: как назвать площадку в боте?\n` +
-      `Название чата в Telegram — «${ctShort}»; его можно подставить кнопкой ниже.\n\n` +
-      `Отправьте своё название сообщением или нажмите кнопку.`
+      `Крок 1/${sm}: як назвати цей майданчик у боті?\n` +
+      `Назва чату в Telegram — «${ctShort}»; його можна замінити за допомогою кнопки нижче.\n\n` +
+      `Надішліть свою назву у повідомленні або натисніть кнопку.`
     );
   }
 
@@ -2618,15 +2618,15 @@ export class BotUpdate {
     const cur = setupResourceAddressLabel?.trim();
     if (cur) {
       return (
-        `Шаг 2/${stepMax}: адрес площадки — в скобках рядом с именем при выборе.\n` +
-        `Сейчас в боте: «${cur}».\n\n` +
-        `Отправьте новый адрес сообщением, «Оставить адрес как сейчас» или «Без адреса», чтобы убрать адрес.`
+        `Крок 2/${stepMax}: адреса майданчика — у дужках поруч із назвою під час вибору.\n` +
+        `Зараз у боті: «${cur}».\n\n` +
+        `Надішліть нову адресу у повідомленні, «Залишити адресу як є» або «Без адреси», щоб видалити адресу.`
       );
     }
     return (
-      `Шаг 2/${stepMax}: адрес площадки (по желанию — в скобках рядом с именем).\n` +
-      `Сейчас адрес не задан.\n\n` +
-      `Отправьте текстом или нажмите «Без адреса», чтобы пропустить.`
+      `Крок 2/${stepMax}: адреса майданчика (за бажанням — у дужках поруч із назвою).\n` +
+      `Наразі адреса не вказана.\n\n` +
+      `Надішліть текстовим повідомленням або натисніть «Без адреси», щоб пропустити.`
     );
   }
 
@@ -2702,11 +2702,11 @@ export class BotUpdate {
       row.slotStartHour == null ||
       row.slotEndHour == null
     ) {
-      return 'Сейчас: выходной.';
+      return 'Зараз: вихідний.';
     }
     const s = row.slotStartHour;
     const e = row.slotEndHour;
-    return `Сейчас: слоты с ${String(s).padStart(2, '0')}:00 по ${String(e).padStart(2, '0')}:30.`;
+    return `Зараз: слоти з ${String(s).padStart(2, '0')}:00 до ${String(e).padStart(2, '0')}:30.`;
   }
 
   private async persistSetupDraft(
@@ -2729,7 +2729,7 @@ export class BotUpdate {
       await this.replyWithMainMenuInDmForGroup(
         ctx,
         targetGroupChatId,
-        'Сессия настройки устарела. Запустите /setup в группе снова.',
+        'Сесія налаштування застаріла. Запустіть /setup у групі ще раз.',
       );
       return;
     }
@@ -2757,12 +2757,12 @@ export class BotUpdate {
       if (editingExisting) {
         tail =
           resourceVisibility === ResourceVisibility.INACTIVE
-            ? ' Не активна — в списке брони для обычных участников не показывается.'
-            : ' Активна — доступна для брони всем.';
+            ? ' Неактивна — не відображається у списку бронювання для звичайних учасників.'
+            : ' Активна — доступна для бронювання всім.';
       }
       const baseDone = draft.creatingNewResource
-        ? `Готово: добавлена площадка «${draft.name}» (активна). Можно бронировать в группе.`
-        : `Готово: площадка «${draft.name}» сохранена.${tail}`;
+        ? `Готово: додано майданчик «${draft.name}» (активна). Можна бронювати в групі.`
+        : `Готово: майданчик «${draft.name}» збережений.${tail}`;
       const offered =
         ctx.from != null &&
         (await isUserAdminOfGroupChat(
@@ -2782,7 +2782,7 @@ export class BotUpdate {
         ctx,
         targetGroupChatId,
         offered
-          ? `${baseDone}\n\nВнизу клавиатуры — «Настроить часы по дням» или «Пропустить» (одинаковые часы на все дни).`
+          ? `${baseDone}\n\nУ нижній частині клавіатури — «Налаштувати годинник за днями» або «Пропустити» (однаковий час для всіх днів).`
           : baseDone,
         { perDayOffer: offered },
       );
@@ -2793,7 +2793,7 @@ export class BotUpdate {
       await this.replyWithMainMenuInDmForGroup(
         ctx,
         targetGroupChatId,
-        'Не удалось сохранить настройки. Попробуйте /setup в группе ещё раз.',
+        'Не вдалося зберегти налаштування. Спробуйте виконати команду /setup у групі ще раз.',
       );
     }
   }
@@ -2816,7 +2816,7 @@ export class BotUpdate {
       this.setupDrafts.delete(sk);
       this.setupBridgeGroupByUser.delete(ctx.from!.id);
       this.resetMenuStateForGroup(targetGroupChatId, ctx.from!.id);
-      await ctx.telegram.sendMessage(ctx.from!.id, 'Настройка отменена.', {
+      await ctx.telegram.sendMessage(ctx.from!.id, 'Налаштування скасовано.', {
         reply_markup: { remove_keyboard: true },
       });
     };
@@ -2864,7 +2864,7 @@ export class BotUpdate {
             this.setupDrafts.set(sk, draft);
             await this.sendSetupDm(
               ctx,
-              'Выберите площадку или добавьте новую. Часовой пояс, часы и адрес задаются для каждой площадки отдельно.',
+              'Виберіть майданчик або додайте новий. Часовий пояс, час та адреса вказуються для кожного майданчика окремо.',
               this.setupPickResourceReplyMarkup(list),
             );
             return;
@@ -2875,7 +2875,7 @@ export class BotUpdate {
             if (!comm) {
               await this.sendSetupDm(
                 ctx,
-                'Сначала настройте площадку через «Площадки».',
+                'Спочатку налаштуйте майданчик у розділі «Майданчики».',
               );
               return;
             }
@@ -2885,10 +2885,10 @@ export class BotUpdate {
             this.setupDrafts.set(sk, draft);
             await this.sendSetupDm(
               ctx,
-              `Время бронирования в группе\n\n` +
-                `Сейчас: ${this.formatBookingWindowSummary(comm)}.\n\n` +
-                `Участники видят меню всегда, но оформить новую бронь смогут только в этом интервале (локальное время в выбранном поясе).\n\n` +
-                `Шаг 1/3: часовой пояс для окна:`,
+              `Час бронювання в групі\n\n` +
+                `Зараз: ${this.formatBookingWindowSummary(comm)}.\n\n` +
+                `Учасники бачать меню завжди, але оформити нове бронювання зможуть лише в цей проміжок часу (за місцевим часом у вибраному часовому поясі).\n\n` +
+                `Крок 1/3: часовий пояс для вікна:`,
               this.setupTzReplyMarkup(),
             );
             return;
@@ -2899,7 +2899,7 @@ export class BotUpdate {
             if (!comm) {
               await this.sendSetupDm(
                 ctx,
-                'Сначала настройте площадку через «Площадки».',
+                'Спочатку налаштуйте майданчик у розділі «Майданчики».',
               );
               return;
             }
@@ -2912,10 +2912,10 @@ export class BotUpdate {
             this.setupDrafts.set(sk, draft);
             await this.sendSetupDm(
               ctx,
-              `Лимит на бронирование\n\n` +
-                `Сколько часов суммарно один пользователь может забронировать в календарный день для каждого дня недели (все площадки группы вместе). День недели и дата — по часовому поясу площадки, на которую идёт бронь; одна бронь не может быть длиннее лимита на этот день.\n\n` +
+              `Ліміт на бронювання\n\n` +
+                `Скільки годин загалом один користувач може забронювати протягом календарного дня для кожного дня тижня (усі майданчики групи разом). День тижня та дата — за часовим поясом майданчика, на який здійснюється бронювання; одне бронювання не може перевищувати ліміт на цей день.\n\n` +
                 `${this.formatUserBookingLimitsSummary(limits)}\n\n` +
-                `Выберите день недели:`,
+                `Виберіть день тижня:`,
               this.setupLimitWeekdayReplyMarkup(),
             );
             return;
@@ -2952,7 +2952,7 @@ export class BotUpdate {
           this.setupDrafts.set(sk, draft);
           await this.sendSetupDm(
             ctx,
-            'Новая площадка.\n\n' +
+            'Новий майданчик.\n\n' +
               this.setupStep1PromptText(chatTitle, {
                 newResource: true,
                 stepMax: this.setupStepMax(draft),
@@ -2965,7 +2965,7 @@ export class BotUpdate {
         if (!m) {
           await this.sendSetupDm(
             ctx,
-            `Выберите номер из списка или нажмите «${SETUP_KB_NEW_RESOURCE}».`,
+            `Виберіть номер зі списку або натисніть «${SETUP_KB_NEW_RESOURCE}».`,
           );
           return;
         }
@@ -2974,7 +2974,7 @@ export class BotUpdate {
         if (!r) {
           await this.sendSetupDm(
             ctx,
-            `Выберите номер из списка или нажмите «${SETUP_KB_NEW_RESOURCE}».`,
+            `Виберіть номер зі списку або натисніть «${SETUP_KB_NEW_RESOURCE}».`,
           );
           return;
         }
@@ -2988,7 +2988,7 @@ export class BotUpdate {
         this.setupDrafts.set(sk, draft);
         await this.sendSetupDm(
           ctx,
-          `Выбрана площадка «${r.name}».\n\n` +
+          `Вибраний майданчик «${r.name}».\n\n` +
             this.setupStep1PromptText(chatTitle, {
               existingResourceName: r.name,
               multiFlow: draft.multiResourceFlow,
@@ -3016,7 +3016,7 @@ export class BotUpdate {
           const listBack = await this.resources.listForChat(targetGroupChatId);
           await this.sendSetupDm(
             ctx,
-            'Выберите площадку или добавьте новую. Часовой пояс, часы и адрес задаются для каждой площадки отдельно.',
+            'Виберіть майданчик або додайте новий. Часовий пояс, час та адреса вказуються для кожного майданчика окремо.',
             this.setupPickResourceReplyMarkup(listBack),
           );
           return;
@@ -3027,7 +3027,7 @@ export class BotUpdate {
             if (draft.creatingNewResource) {
               await this.sendSetupDm(
                 ctx,
-                'Для новой площадки введите название текстом (не пустое).',
+                'Для нового майданчика введіть назву у вигляді тексту (не порожню).',
               );
             }
             return;
@@ -3037,7 +3037,7 @@ export class BotUpdate {
           if (draft.creatingNewResource) {
             await this.sendSetupDm(
               ctx,
-              'Для новой площадки введите своё название текстом, не из названия чата.',
+              'Для нового майданчика введіть свою назву текстом, а не з назви чату.',
             );
             return;
           }
@@ -3045,7 +3045,7 @@ export class BotUpdate {
           if (!t) {
             await this.sendSetupDm(
               ctx,
-              'Не удалось взять название чата. Введите название текстом.',
+              'Не вдалося отримати назву чату. Введіть назву у вигляді тексту.',
             );
             return;
           }
@@ -3056,17 +3056,17 @@ export class BotUpdate {
             await this.sendSetupDm(
               ctx,
               draft.setupResourceLabel
-                ? 'Введите название текстом или нажмите «Оставить название как сейчас».'
+                ? 'Введіть назву у вигляді тексту або натисніть «Залишити назву без змін».'
                 : draft.creatingNewResource
-                  ? 'Введите название площадки текстом (не пустое).'
-                  : 'Введите название площадки текстом или нажмите «Название как в чате».',
+                  ? 'Введіть назву майданчика у вигляді тексту (не порожнє поле).'
+                  : 'Введіть назву майданчика у вигляді тексту або натисніть «Назва, як у чаті».',
             );
             return;
           }
           if (trimmed.length > 200) {
             await this.sendSetupDm(
               ctx,
-              'Название слишком длинное (максимум 200 символов).',
+              'Назва занадто довга (максимум 200 символів).',
             );
             return;
           }
@@ -3135,15 +3135,15 @@ export class BotUpdate {
             await this.sendSetupDm(
               ctx,
               draft.setupResourceAddressLabel?.trim()
-                ? 'Введите адрес текстом или выберите кнопку ниже.'
-                : 'Введите адрес текстом или нажмите «Без адреса».',
+                ? 'Введіть адресу у текстовому полі або натисніть кнопку нижче.'
+                : 'Введіть адресу у вигляді тексту або натисніть «Без адреси».',
             );
             return;
           }
           if (trimmed.length > 300) {
             await this.sendSetupDm(
               ctx,
-              'Адрес слишком длинный (максимум 300 символов).',
+              'Адреса занадто довга (максимум 300 символів).',
             );
             return;
           }
@@ -3154,7 +3154,7 @@ export class BotUpdate {
         this.setupDrafts.set(sk, draft);
         await this.sendSetupDm(
           ctx,
-          `${this.setupStepLine(3, draft)}: часовой пояс (слоты будут в этом поясе)`,
+          `${this.setupStepLine(3, draft)}: часовий пояс (слоти будуть у цьому поясі)`,
           this.setupTzReplyMarkup(),
         );
         return;
@@ -3188,7 +3188,7 @@ export class BotUpdate {
         this.setupDrafts.set(sk, draft);
         await this.sendSetupDm(
           ctx,
-          `${this.setupStepLine(4, draft)}: час открытия — первое возможное начало брони`,
+          `${this.setupStepLine(4, draft)}: час відкриття — найраніший можливий час початку бронювання`,
           this.setupStartHourReplyMarkup(),
         );
         return;
@@ -3202,7 +3202,7 @@ export class BotUpdate {
           this.setupDrafts.set(sk, draft);
           await this.sendSetupDm(
             ctx,
-            `${this.setupStepLine(3, draft)}: часовой пояс (слоты будут в этом поясе)`,
+            `${this.setupStepLine(3, draft)}: часовий пояс (слоти будуть у цьому поясі)`,
             this.setupTzReplyMarkup(),
           );
           return;
@@ -3215,7 +3215,7 @@ export class BotUpdate {
         if (!Number.isInteger(hour) || hour < 0 || hour > 22) {
           await this.sendSetupDm(
             ctx,
-            'Выберите час открытия от 00:00 до 22:00.',
+            'Оберіть час роботи з 00:00 до 22:00.',
           );
           return;
         }
@@ -3225,7 +3225,7 @@ export class BotUpdate {
         this.setupDrafts.set(sk, draft);
         await this.sendSetupDm(
           ctx,
-          `${this.setupStepLine(5, draft)}: время окончания работы — к выбранному часу все брони должны завершиться (открытие: ${String(hour).padStart(2, '0')}:00)`,
+          `${this.setupStepLine(5, draft)}: час закінчення роботи — до обраного часу всі бронювання мають завершитися (відкриття: ${String(hour).padStart(2, '0')}:00)`,
           this.setupClosingHourReplyMarkup(hour),
         );
         return;
@@ -3238,7 +3238,7 @@ export class BotUpdate {
           this.setupDrafts.set(sk, draft);
           await this.sendSetupDm(
             ctx,
-            `${this.setupStepLine(4, draft)}: час открытия — первое возможное начало брони`,
+            `${this.setupStepLine(4, draft)}: час відкриття — найраніший можливий час початку бронювання`,
             this.setupStartHourReplyMarkup(),
           );
           return;
@@ -3260,7 +3260,7 @@ export class BotUpdate {
         if (closeHour <= start) {
           await this.sendSetupDm(
             ctx,
-            'Окончание должно быть позже времени открытия. Выберите другой час.',
+            'Закінчення має бути пізніше за час початку. Оберіть інший час.',
           );
           return;
         }
@@ -3277,7 +3277,7 @@ export class BotUpdate {
           await this.replyWithMainMenuInDmForGroup(
             ctx,
             targetGroupChatId,
-            'Сессия настройки устарела. Запустите /setup в группе снова.',
+            'Сесія налаштування застаріла. Запустіть /setup у групі ще раз.',
           );
           return;
         }
@@ -3287,13 +3287,13 @@ export class BotUpdate {
           this.setupDrafts.set(sk, draft);
           const cur =
             draft.setupResourceVisibility === ResourceVisibility.INACTIVE
-              ? 'не активна (в брони для обычных участников не показывается)'
+              ? 'неактивна (у бронюванні для звичайних учасників не відображається)'
               : 'активна';
           await this.sendSetupDm(
             ctx,
-            `${this.setupStepLine(6, draft)}: статус площадки.\n\n` +
-              `Сейчас в боте: ${cur}.\n\n` +
-              `Выберите статус — он сохранится вместе с часами и адресом:`,
+            `${this.setupStepLine(6, draft)}: статус майданчика.\n\n` +
+              `Зараз у боті: ${cur}.\n\n` +
+              `Виберіть статус — він збережеться разом із часом та адресою:`,
             this.setupResourceVisibilityReplyMarkup(),
           );
           return;
@@ -3318,13 +3318,13 @@ export class BotUpdate {
             await this.replyWithMainMenuInDmForGroup(
               ctx,
               targetGroupChatId,
-              'Сессия настройки устарела. Запустите /setup в группе снова.',
+              'Сесія налаштування застаріла. Запустіть /setup у групі ще раз.',
             );
             return;
           }
           await this.sendSetupDm(
             ctx,
-            `${this.setupStepLine(5, draft)}: время окончания работы — к выбранному часу все брони должны завершиться (открытие: ${String(hour).padStart(2, '0')}:00)`,
+            `${this.setupStepLine(5, draft)}: час закінчення роботи — до обраного часу всі бронювання мають завершитися (відкриття: ${String(hour).padStart(2, '0')}:00)`,
             this.setupClosingHourReplyMarkup(hour),
           );
           return;
@@ -3357,8 +3357,8 @@ export class BotUpdate {
     rulesText: string,
   ): Promise<{ usedDm: boolean }> {
     const intro =
-      'Добро пожаловать! Перед началом ознакомьтесь с правилами сообщества.\n\n' +
-      'После прочтения нажмите «Принимаю правила» под последним сообщением.\n\n—\n\n';
+      'Ласкаво просимо! Перед початком ознайомтеся з правилами спільноти.\n\n' +
+      'Після прочитання натисніть «Погоджуюсь з правилами» під останнім повідомленням.\n\n—\n\n';
     const full = `${intro}${rulesText}`;
     const chunks: string[] = [];
     for (let i = 0; i < full.length; i += RULES_MESSAGE_CHUNK) {
@@ -3449,7 +3449,7 @@ export class BotUpdate {
               try {
                 await ctx.telegram.sendMessage(
                   chat.id,
-                  'Правила сообщества отправлены вам в личку с ботом. Откройте диалог с ботом (при необходимости нажмите Start) и подтвердите кнопкой внизу.',
+                  'Правила спільноти надіслано вам у приватне повідомлення від бота. Відкрийте діалог із ботом (за потреби натисніть «Start») і підтвердьте натисканням кнопки внизу.',
                 );
               } catch (e) {
                 this.logger.warn(
@@ -3471,11 +3471,11 @@ export class BotUpdate {
           this.resetMenuStateForGroup(chatId, u.id);
         }
         const text = ready
-          ? 'Добро пожаловать!\n\n' +
-            'Меню бронирования для этого сообщества.\n\n' +
-            'Напоминания в личку — открой бота в ЛС и нажми /start.'
-          : 'Добро пожаловать!\n\n' +
-            'Площадка ещё не настроена. Администратору: команда /setup.';
+          ? 'Ласкаво просимо!\n\n' +
+            'Меню бронювання для цієї спільноти.\n\n' +
+            'Нагадування в особисті повідомлення — відкрий бота в особистих повідомленнях і натисни /start.'
+          : 'Ласкаво просимо!\n\n' +
+            'Площадка ще не налаштована. Адміністратору: команда /setup.';
         try {
           const kb = await this.mainMenuReplyMarkupForChatUser(
             ctx.telegram,
@@ -3507,8 +3507,8 @@ export class BotUpdate {
       return;
     }
     await ctx.reply(
-      'Привет! Я помогу бронировать площадку в этом чате.\n\n' +
-        'Администратору: /setup в этой группе — дальше настройка в личке с ботом (остальные участники её не видят).',
+      'Привіт! Я допоможу забронювати майданчик у цьому чаті.\n\n' +
+        'Адміністратору: /setup у цій групі — подальше налаштування у приватних повідомленнях з ботом (інші учасники цього не бачать).',
     );
   }
 
@@ -3520,8 +3520,8 @@ export class BotUpdate {
 
     if (ctx.chat && !isGroupChat(ctx)) {
       await ctx.reply(
-        'Привет! Добавь меня в группу с площадкой и попроси админа выполнить /setup.\n\n' +
-          'Чтобы получать напоминания за 15 минут до игры, оставь этот диалог открытым.',
+        'Привіт! Додай мене до групи з майданчиком і попроси адміністратора виконати /setup.\n\n' +
+          'Щоб отримувати нагадування за 15 хвилин до початку гри, залиш це вікно відкритим.',
       );
       return;
     }
@@ -3539,7 +3539,7 @@ export class BotUpdate {
         })
       ) {
         await ctx.reply(
-          'Сначала примите правила группы — кнопка «Принимаю правила» в личке с ботом или в группе.',
+          'Спочатку прийміть правила групи — натисніть кнопку «Приймаю правила» у приватних повідомленнях з ботом або у групі.',
         );
         return;
       }
@@ -3554,9 +3554,9 @@ export class BotUpdate {
 
     await ctx.reply(
       ready
-        ? 'Меню бронирования для этого сообщества.\n\n' +
-            'Напоминания в личку — открой бота в ЛС и нажми /start.'
-        : 'Площадка ещё не настроена. Администратору: команда /setup.',
+        ? 'Меню бронювання для цієї спільноти.\n\n' +
+            'Нагадування в особисті повідомлення — відкрий бота в особистих повідомленнях і натисни /start.'
+        : 'Площадка ще не налаштована. Адміністратору: команда /setup.',
       await this.mainMenuReplyMarkup(ctx),
     );
   }
@@ -3615,7 +3615,7 @@ export class BotUpdate {
             groupChatTitleForPrompt: chatTitle,
             venuesSubstep: 'hub',
           },
-          `Настройка группы «${chatTitle}». Дальше пишите только здесь — участники группы это не увидят.\n\n${this.setupHubButtonsHintText()}`,
+          `Налаштування групи «${chatTitle}». Надалі пишіть лише тут — учасники групи цього не побачать.\n\n${this.setupHubButtonsHintText()}`,
           this.setupVenuesHubReplyMarkup(),
         );
         return;
@@ -3638,7 +3638,7 @@ export class BotUpdate {
       };
       await startDm(
         draftOne,
-        `Настройка группы «${chatTitle}». Дальше пишите только здесь — участники группы это не увидят.\n\n${this.setupStep1PromptText(
+        `Налаштування групи «${chatTitle}». Надалі пишіть лише тут — учасники групи цього не побачать.\n\n${this.setupStep1PromptText(
           chatTitle,
           {
             existingResourceName: setupResourceLabel,
@@ -3661,7 +3661,7 @@ export class BotUpdate {
       return;
     }
     if (!(await isGroupAdmin(ctx))) {
-      await ctx.reply('Только администратор может настраивать площадку.');
+      await ctx.reply('Лише адміністратор може налаштовувати майданчик.');
       return;
     }
 
@@ -3691,7 +3691,7 @@ export class BotUpdate {
     } catch (e) {
       this.logger.warn(e instanceof Error ? e.message : 'setup DM failed');
       await ctx.reply(
-        'Не удалось написать вам в личку. Откройте диалог с ботом и нажмите Start, затем снова выполните /setup в группе или нажмите «Настройки».',
+        'Не вдалося написати вам у приватних повідомленнях. Відкрийте діалог із ботом і натисніть Start, а потім знову виконайте команду /setup у групі або натисніть «Налаштування».',
       );
     }
   }
@@ -3710,7 +3710,7 @@ export class BotUpdate {
     const expectedUserId = Number(mm[1]);
     const groupIdStr = mm[2];
     if (ctx.from.id !== expectedUserId) {
-      await ctx.answerCbQuery('Эта кнопка только для вас.', {
+      await ctx.answerCbQuery('Ця кнопка призначена саме для вас.', {
         show_alert: true,
       });
       return;
@@ -3723,7 +3723,7 @@ export class BotUpdate {
     }
     if (groupChatId === null) {
       await ctx.answerCbQuery(
-        'Не удалось определить группу. Попросите отправить правила заново.',
+        'Не вдалося визначити групу. Попросіть надіслати правила ще раз.',
         { show_alert: true },
       );
       return;
@@ -3735,12 +3735,12 @@ export class BotUpdate {
     });
     if (!r.ok) {
       await ctx.reply(
-        'Не удалось подтвердить: правила не заданы или вы не в списке участников чата.',
+        'Не вдалося підтвердити: правила не визначені або вас немає у списку учасників чату.',
       );
       return;
     }
     try {
-      await ctx.editMessageText('✅ Правила приняты.');
+      await ctx.editMessageText('✅ Правила прийнято.');
     } catch {
       /* не текст / нет прав */
     }
@@ -3750,9 +3750,9 @@ export class BotUpdate {
       this.resetMenuStateForGroup(groupChatId, ctx.from.id);
     }
     const welcomeText = ready
-      ? 'Меню бронирования для этого сообщества.\n\n' +
-        'Напоминания в личку — открой бота в ЛС и нажми /start.'
-      : 'Площадка ещё не настроена. Администратору: команда /setup.';
+      ? 'Меню бронювання для цієї спільноти.\n\n' +
+        'Нагадування в особисті повідомлення — відкрий бота в особистих повідомленнях і натисни /start.'
+      : 'Майданчик ще не налаштований. Адміністратору: команда /setup.';
     try {
       const kb = await this.mainMenuReplyMarkupForChatUser(
         ctx.telegram,
@@ -3771,17 +3771,17 @@ export class BotUpdate {
   async onMenu(@Ctx() ctx: Context) {
     await ctx.answerCbQuery();
     if (!isGroupChat(ctx) || !ctx.chat) {
-      await ctx.reply('Доступно только в группе.');
+      await ctx.reply('Доступно лише в групі.');
       return;
     }
     const comm = await this.community.findByTelegramChatId(BigInt(ctx.chat.id));
     if (!comm || comm.resources.length === 0) {
       await ctx.editMessageText(
-        'Сначала администратор должен выполнить /setup.',
+        'Спочатку адміністратор повинен виконати /setup.',
       );
       return;
     }
     this.resetMenuState(ctx);
-    await ctx.reply('Главное меню:', await this.mainMenuReplyMarkup(ctx));
+    await ctx.reply('Головне меню:', await this.mainMenuReplyMarkup(ctx));
   }
 }

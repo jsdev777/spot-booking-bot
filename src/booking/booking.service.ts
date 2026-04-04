@@ -50,10 +50,10 @@ type LoadedResourceDayBookings = {
   bookings: DayBookingWithSport[];
 };
 
-/** Локальное время начала брони (шаг 30 мин: :00 и :30). */
+/** Local start time of the reservation (in 30-minute increments: :00 and :30). */
 export type BookingStartSlot = { hour: number; minute: number };
 
-/** Кому и что отправить в ЛС после отмены брони организатором. */
+/** Who should be notified via private message and what should be sent after the organizer cancels the reservation. */
 export type BookingCancelNotification = {
   recipientTelegramIds: number[];
   cancelNoticeText: string;
@@ -65,7 +65,7 @@ export type TelegramFrom = {
   first_name?: string;
 };
 
-/** Сначала ник в Telegram (@username), иначе имя; без скрытого юзернейма — «Игрок». */
+/** First, your Telegram username (@username), otherwise your name; if you don't have a hidden username, use “Player”. */
 function displayUserName(from: TelegramFrom): string {
   const uname = from.username?.trim();
   if (uname) {
@@ -75,7 +75,7 @@ function displayUserName(from: TelegramFrom): string {
   if (fn) {
     return fn;
   }
-  return 'Игрок';
+  return 'Гравець';
 }
 
 function localDayAnchor(now: Date, dayOffset: number, timeZone: string): Date {
@@ -109,8 +109,8 @@ export class BookingService {
   ) {}
 
   /**
-   * Лимит community_user_booking_limits для дня недели и календарной даты начала брони
-   * в часовом поясе площадки (`limitTimeZone`). null — ограничения нет.
+   * The `community_user_booking_limits` limit for the day of the week and the calendar start date of the booking
+   * in the venue's time zone (`limitTimeZone`). `null` means no limit.
    */
   private async communityUserBookingLimitState(params: {
     communityId: string;
@@ -159,12 +159,12 @@ export class BookingService {
     dayOffset: number;
     now?: Date;
     /**
-     * Администратор или creator чата в Telegram: не ограничены полями booking_window_* в Community
-     * и могут бронировать на скрытых площадках.
+     * Telegram chat administrators or creators: are not restricted by the booking_window_* fields in Community
+     * and can make reservations on hidden platforms.
      */
     telegramGroupAdmin?: boolean;
     /**
-     * Сетка дня: окно booking_window_* не проверяется (ни для участников, ни для админов).
+     * Daily schedule: The booking_window_* field is not validated (neither for users nor for admins).
      */
     forDayGridDisplay?: boolean;
   }): Promise<LoadedResourceDayBookings | null> {
@@ -240,15 +240,15 @@ export class BookingService {
   }
 
   /**
-   * Времена начала (:00 и :30), с которых хотя бы одна длительность (1 / 1.5 / 2 ч)
-   * укладывается в рабочее окно и не пересекается с бронями.
+   * Start times (:00 and :30) where at least one duration (1 / 1.5 / 2 hours)
+   * fits within the working window and does not overlap with reservations.
    */
   async getAvailableStartSlots(params: {
     resourceId: string;
     telegramChatId: bigint;
     dayOffset: number;
     now?: Date;
-    /** Админ/creator группы в Telegram — вне окна booking_window_* в communities. */
+    /** Telegram group admin/creator — outside the booking_window_* window in communities. */
     telegramGroupAdmin?: boolean;
   }): Promise<BookingStartSlot[]> {
     let ctx: LoadedResourceDayBookings | null = null;
@@ -321,7 +321,7 @@ export class BookingService {
     startMinute: number;
     now?: Date;
     telegramGroupAdmin?: boolean;
-    /** Для лимита сообщества по дню (не админ). */
+    /** For the community's daily limit (non-admin). */
     telegramUserId?: number;
   }): Promise<BookingDurationMinutes[]> {
     let ctx: LoadedResourceDayBookings | null = null;
@@ -396,12 +396,12 @@ export class BookingService {
     from: TelegramFrom;
     dayOffset: number;
     startHour: number;
-    /** 0 или 30 — старт в :00 или :30. */
+    /** 0 or 30 — start at :00 or :30. */
     startMinute?: number;
-    /** Вид спорта для брони; если не задан — берётся с объекта (настройка площадки). */
+    /** Sport type for the booking; if not specified, it is taken from the object (venue settings). */
     sportKindCode?: SportKindCode;
     durationMinutes: BookingDurationMinutes;
-    /** Ищете партнёров для игры; при true нужен requiredPlayers ≥ 1. */
+    /** Searching for players; if true, requiredPlayers must be ≥ 1. */
     isLookingForPlayers?: boolean;
     requiredPlayers?: number;
     now?: Date;
@@ -558,12 +558,11 @@ export class BookingService {
     const day = formatInTimeZone(booking.startTime, tz, 'dd.MM.yyyy');
     const a = formatInTimeZone(booking.startTime, tz, 'HH:mm');
     const z = formatInTimeZone(booking.endTime, tz, 'HH:mm');
-    const sport =
-      booking.sportKind.nameRu.trim() || booking.sportKindCode;
+    const sport = booking.sportKind.nameUa.trim() || booking.sportKindCode;
     const cancelNoticeText =
-      `Бронь отменена организатором.\n\n` +
-      `Площадка: «${booking.resource.name}»\n` +
-      `Время: ${day} ${a}–${z} (${tz})\n` +
+      `Бронювання скасовано організатором.\n\n` +
+      `Майданчик: «${booking.resource.name}»\n` +
+      `Час: ${day} ${a}–${z} (${tz})\n` +
       `Спорт: ${sport}`;
 
     const organizerId = Number(booking.userId);
@@ -616,7 +615,7 @@ export class BookingService {
     });
   }
 
-  /** Активные брони в чате, где ещё ищут партнёров (только будущие слоты). */
+  /** Active bookings in the chat where people are still looking for partners (future slots only). */
   async listOpenLookingSlots(params: { telegramChatId: bigint; now?: Date }) {
     const now = params.now ?? new Date();
     return this.prisma.booking.findMany({
@@ -635,7 +634,7 @@ export class BookingService {
   }
 
   /**
-   * Нажатие «Свободные места»: −1 к required_players; учёт в booking_looking_participants (people_count += 1 на этого пользователя).
+   * Clicking “Available slots”: subtract 1 from required_players; count this user in booking_looking_participants (people_count += 1 for this user).
    */
   async volunteerForLookingSlot(params: {
     bookingId: string;
@@ -644,7 +643,7 @@ export class BookingService {
   }): Promise<{
     remainingPlayers: number;
     yourPeopleCount: number;
-    /** Предыдущее ЛС по этой же брони — удалить перед новым сообщением. */
+    /** The previous private message regarding this reservation — delete it before posting a new message. */
     previousDmMessageId: number | null;
     dm: {
       resourceName: string;
@@ -652,7 +651,7 @@ export class BookingService {
       timeZone: string;
       startTime: Date;
       endTime: Date;
-      sportNameRu: string;
+      sportNameUa: string;
     };
   }> {
     return this.prisma.$transaction(async (tx) => {
@@ -720,7 +719,7 @@ export class BookingService {
           timeZone: full.resource.timeZone,
           startTime: full.startTime,
           endTime: full.endTime,
-          sportNameRu: full.sportKind.nameRu.trim() || full.sportKindCode,
+          sportNameUa: full.sportKind.nameUa.trim() || full.sportKindCode,
         },
       };
     });
@@ -743,8 +742,8 @@ export class BookingService {
   }
 
   /**
-   * Сетка дня: окно booking_window_* не применяется (просмотр для всех).
-   * telegramGroupAdmin — видеть скрытые площадки.
+   * Daily schedule: The booking_window_* permission does not apply (viewable by everyone).
+   * telegramGroupAdmin — view hidden venues.
    */
   async buildDayGridText(params: {
     resourceId: string;
@@ -762,7 +761,7 @@ export class BookingService {
       forDayGridDisplay: true,
     });
     if (!ctx) {
-      return 'Объект не найден.';
+      return `Об'єкт не знайдено.`;
     }
     const {
       res,
@@ -777,7 +776,7 @@ export class BookingService {
 
     const label =
       params.dayOffset === 0
-        ? 'Сегодня'
+        ? 'Сьогодні'
         : params.dayOffset === 1
           ? 'Завтра'
           : `День +${params.dayOffset}`;
@@ -785,11 +784,11 @@ export class BookingService {
     const lines = [`${res.name} — ${label} (${timeZone}):`, ''];
 
     if (bookings.length > 0) {
-      lines.push('Брони:');
+      lines.push('Бронювання:');
       for (const b of bookings) {
-        const raw = b.userName?.trim() || 'Игрок';
-        const name = raw.replace(/^@+/, '').trim() || 'Игрок';
-        const sport = b.sportKind.nameRu.trim() || b.sportKindCode;
+        const raw = b.userName?.trim() || 'Гравець';
+        const name = raw.replace(/^@+/, '').trim() || 'Гравець';
+        const sport = b.sportKind.nameUa.trim() || b.sportKindCode;
         const a = formatInTimeZone(b.startTime, timeZone, 'HH:mm');
         const z = formatInTimeZone(b.endTime, timeZone, 'HH:mm');
         lines.push(`🔴 ${a}–${z} (${sport}) — ${name}`);
@@ -798,26 +797,26 @@ export class BookingService {
     }
 
     if (dayClosed) {
-      lines.push('В этот день площадка не работает.');
+      lines.push('Цього дня майданчик не працює.');
       return lines.join('\n');
     }
 
-    lines.push('По часам:');
+    lines.push('По годинам:');
     for (let h = slotStartHour; h <= slotEndHour; h++) {
       const segStart = atLocalHour(localDay, h, 0, timeZone);
       const segEnd = atLocalHour(localDay, h + 1, 0, timeZone);
       const hh = `${String(h).padStart(2, '0')}:00`;
       if (params.dayOffset === 0 && segStart <= now) {
-        lines.push(`⏱ ${hh} — уже прошло`);
+        lines.push(`⏱ ${hh} — вже пройшло`);
         continue;
       }
       const occ = hourSegmentOccupancy(segStart, segEnd, bookings);
       if (occ === 'free') {
-        lines.push(`🟢 ${hh} — свободно`);
+        lines.push(`🟢 ${hh} — вільно`);
       } else if (occ === 'full') {
-        lines.push(`🔴 ${hh} — занято`);
+        lines.push(`🔴 ${hh} — зайнято`);
       } else {
-        lines.push(`🟡 ${hh} — занято (часть часа)`);
+        lines.push(`🟡 ${hh} — зайнято (частина години)`);
       }
     }
     return lines.join('\n');

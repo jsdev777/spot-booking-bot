@@ -1,10 +1,10 @@
 import type { BookingDurationMinutes } from '../booking/booking-intervals';
 import type { SportKindCode } from '../generated/prisma/client';
 
-/** Состояние меню в группе (на пользователя). */
+/** Menu state in the group (per user). */
 export type MenuState =
   | { t: 'main' }
-  /** Сначала выбор вида спорта (и у участников, и у админов). */
+  /** First, select a sport (for both participants and administrators). */
   | { t: 'book_sport' }
   | { t: 'book_res'; sportKindCode?: SportKindCode }
   | { t: 'book_day'; resourceId: string; sportKindCode?: SportKindCode }
@@ -43,7 +43,7 @@ export type MenuState =
   | { t: 'grid_res' }
   | { t: 'grid_day'; resourceId: string }
   | { t: 'list'; bookingIds: string[]; rowLabels: string[] }
-  /** Брони с поиском партнёров (кнопка «Свободные места»). */
+  /** Reservations with partner search (the “Available Seats” button). */
   | { t: 'free_slots'; bookingIds: string[]; rowLabels: string[] };
 
 export function defaultMenuState(): MenuState {

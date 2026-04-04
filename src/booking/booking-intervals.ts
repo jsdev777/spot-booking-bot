@@ -11,11 +11,11 @@ export function intervalsOverlap(
 export const BOOKING_DURATION_MINUTES = [60, 90, 120] as const;
 export type BookingDurationMinutes = (typeof BOOKING_DURATION_MINUTES)[number];
 
-/** Один календарный час [segStart, segEnd) относительно броней в этот день. */
+/** A one-hour time slot [segStart, segEnd) relative to the bookings for that day. */
 export type HourSegmentOccupancy = 'free' | 'full' | 'partial';
 
 /**
- * Полный час занят — весь отрезок перекрыт бронями; иначе при любом перекрытии — часть часа.
+ * If the entire hour is booked, the entire time slot is reserved; otherwise, if any part of the hour is booked, only that portion is reserved.
  */
 export function hourSegmentOccupancy(
   segStart: Date,

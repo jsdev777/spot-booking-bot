@@ -22,7 +22,7 @@ describe('intervalsOverlap', () => {
 });
 
 describe('hourSegmentOccupancy', () => {
-  it('бронь 1.5 ч: первый час полностью занят, следующий — частично', () => {
+  it('бронювання на 1,5 години: перша година повністю зайнята, наступна — частково', () => {
     const h9 = new Date('2026-06-15T09:00:00.000Z');
     const h10 = new Date('2026-06-15T10:00:00.000Z');
     const h11 = new Date('2026-06-15T11:00:00.000Z');
@@ -34,7 +34,7 @@ describe('hourSegmentOccupancy', () => {
     expect(hourSegmentOccupancy(h10, h11, [booking])).toBe('partial');
   });
 
-  it('две смежные брони на 30 мин заполняют час целиком', () => {
+  it('дві суміжні броні на 30 хвилин заповнюють цілу годину', () => {
     const h9 = new Date('2026-06-15T09:00:00.000Z');
     const h10 = new Date('2026-06-15T10:00:00.000Z');
     const bookings = [

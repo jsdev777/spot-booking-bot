@@ -100,9 +100,9 @@ export class CommunityService {
   }
 
   /**
-   * Создаёт сообщество или обновляет существующее.
-   * Название сообщества (шаг 1) можно не трогать, если несколько площадок и правится одна — `updateCommunityName: false`.
-   * Ресурс: `resourceId` (если валиден), иначе первый в списке; если ресурсов нет — создаётся один.
+   * Creates a community or updates an existing one.
+   * You can leave the community name (step 1) unchanged if you're managing multiple platforms and updating just one—`updateCommunityName: false`.
+   * Resource: `resourceId` (if valid), otherwise the first one in the list; if there are no resources, one is created.
    */
   async createOrUpdateFromSetup(params: {
     telegramChatId: bigint;
@@ -113,11 +113,11 @@ export class CommunityService {
     slotEndHour: number;
     resourceName: string;
     resourceId?: string;
-    /** По умолчанию true — обновить `community.name` из шага 1. */
+    /** Default value is true — update `community.name` from step 1. */
     updateCommunityName?: boolean;
-    /** Добавить новый resource, не трогать существующие. */
+    /** Add a new resource; do not modify existing ones. */
     createNewResource?: boolean;
-    /** Для существующей площадки — видимость в брони; новые всегда ACTIVE. */
+    /** For existing sites—visible in the booking system; new sites are always ACTIVE. */
     resourceVisibility?: ResourceVisibility;
   }) {
     const existing = await this.prisma.community.findUnique({
@@ -208,7 +208,7 @@ export class CommunityService {
     });
   }
 
-  /** Одна строка расписания (ЛС /setup «по дням»). `weekday`: ISO 1–7. */
+  /** A single schedule row (LS /setup “by day”). `weekday`: ISO 1–7. */
   async updateResourceWeekdayHours(params: {
     telegramChatId: bigint;
     resourceId: string;
@@ -274,7 +274,7 @@ export class CommunityService {
     });
   }
 
-  /** Окно времени, когда участники могут оформлять бронь (локальное время в указанном поясе). */
+  /** The time window during which participants can make reservations (local time in the specified time zone). */
   async updateCommunityBookingWindow(params: {
     telegramChatId: bigint;
     bookingWindowTimeZone: string;
@@ -311,7 +311,7 @@ export class CommunityService {
     });
   }
 
-  /** Расписание площадки для UI (после /setup). */
+  /** UI layout (after /setup). */
   async getResourceWorkingHoursForChat(params: {
     telegramChatId: bigint;
     resourceId: string;
@@ -327,7 +327,7 @@ export class CommunityService {
     });
   }
 
-  /** Лимиты «часов на пользователя» по дням недели (ISO 1–7) для сообщества. */
+  /** “Hours per user” limits by day of the week (ISO 1–7) for the community. */
   async getUserBookingLimitsForChat(telegramChatId: bigint) {
     return this.prisma.communityUserBookingLimit.findMany({
       where: { community: { telegramChatId } },
@@ -335,7 +335,7 @@ export class CommunityService {
     });
   }
 
-  /** Одна строка лимита; `maxMinutes` null — без ограничения. */
+  /** A single limit value; `maxMinutes` set to null indicates no limit. */
   async updateCommunityUserBookingLimitWeekday(params: {
     telegramChatId: bigint;
     weekday: number;

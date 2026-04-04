@@ -1,14 +1,14 @@
 generator client {
-  provider       = "prisma-client"
-  output         = "../src/generated/prisma"
-  moduleFormat   = "cjs"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
 }
 
 datasource db {
   provider = "postgresql"
 }
 
-/// Код вида спорта (в PostgreSQL тип enum по-прежнему называется SportType).
+/// Sport code (in PostgreSQL, the enum type is still called SportType)
 enum SportKindCode {
   TENNIS
   FOOTBALL
@@ -17,10 +17,10 @@ enum SportKindCode {
   @@map("SportType")
 }
 
-/// Справочник видов спорта: код + подпись (для броней и UI).
+/// Sports Reference Guide: Code + Description (for armor and UI)
 model SportKind {
   sportKindCode SportKindCode @id @map("sport_kind_code")
-  nameRu        String        @map("name_ru")
+  nameUa        String        @map("name_ua")
   bookings      Booking[]
 
   @@map("sport_kinds")
@@ -31,7 +31,7 @@ enum BookingStatus {
   CANCELLED
 }
 
-/// Видимость площадки в бронировании для обычных участников чата.
+/// Visibility of the venue in the booking for regular chat participants
 enum ResourceVisibility {
   ACTIVE
   INACTIVE
@@ -40,16 +40,16 @@ enum ResourceVisibility {
 }
 
 model Community {
-  id             String     @id @default(uuid())
-  telegramChatId BigInt     @unique @map("telegram_chat_id")
-  name           String
-  createdAt      DateTime   @default(now()) @map("created_at")
-  /// Часовой пояс интервала, когда обычные участники могут оформлять бронь (локальное время). Админы/creator чата не ограничены.
-  bookingWindowTimeZone  String @default("Europe/Moscow") @map("booking_window_time_zone")
-  /// Начало окна для участников, час 0–23 (включительно). Админы группы могут бронировать в любое время.
-  bookingWindowStartHour Int    @default(0) @map("booking_window_start_hour")
-  /// Конец окна для участников, час 1–24: [start, end); 24 — до полуночи. На админов не распространяется.
-  bookingWindowEndHour   Int    @default(24) @map("booking_window_end_hour")
+  id                     String                      @id @default(uuid())
+  telegramChatId         BigInt                      @unique @map("telegram_chat_id")
+  name                   String
+  createdAt              DateTime                    @default(now()) @map("created_at")
+  /// The time zone for the period during which regular participants can make reservations (local time). Chat admins and creators are not subject to this restriction
+  bookingWindowTimeZone  String                      @default("Europe/Kyiv") @map("booking_window_time_zone")
+  /// The booking window for participants is open from 12:00 AM to 11:59 PM (inclusive). Group administrators can make reservations at any time
+  bookingWindowStartHour Int                         @default(0) @map("booking_window_start_hour")
+  /// End of the window for participants, hours 1–24: [start, end); 24 — until midnight. Does not apply to administrators
+  bookingWindowEndHour   Int                         @default(24) @map("booking_window_end_hour")
   resources              Resource[]
   userBookingLimits      CommunityUserBookingLimit[]
   groupMemberships       GroupChatMembership[]
@@ -58,7 +58,7 @@ model Community {
   @@map("communities")
 }
 
-/// Правила сообщества (один текст на community). Пока не приняты — не привязываем участника к community в group_chat_memberships.
+/// Community Rules (one text per community). Until they are approved, we do not assign the member to the community in group_chat_memberships
 model CommunityRules {
   communityId String    @id @map("community_id")
   community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
@@ -68,16 +68,16 @@ model CommunityRules {
   @@map("community_rules")
 }
 
-/// Язык интерфейса/сообщений (код для i18n, напр. ISO 639-1).
+/// Interface/message language (i18n code, e.g., ISO 639-1)
 model Language {
-  id         String                @id
-  nameNative String                @map("name_native")
+  id          String                @id
+  nameNative  String                @map("name_native")
   memberships GroupChatMembership[]
 
   @@map("languages")
 }
 
-/// Пользователь Telegram (один аккаунт на все группы бота).
+/// Telegram user (one account for all of the bot's groups)
 model TelegramUser {
   id             String                @id @default(uuid())
   telegramUserId BigInt                @unique @map("telegram_user_id")
@@ -91,21 +91,21 @@ model TelegramUser {
   @@map("telegram_users")
 }
 
-/// Участник группы/супергруппы, где есть бот (по апдейтам chat_member).
+/// A member of a group or supergroup that contains a bot (based on the `chat_member` update)
 model GroupChatMembership {
-  id             String        @id @default(uuid())
-  telegramChatId BigInt        @map("telegram_chat_id")
-  userId         String        @map("user_id")
-  user           TelegramUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  communityId    String?       @map("community_id")
-  community      Community?    @relation(fields: [communityId], references: [id], onDelete: SetNull)
-  joinedAt       DateTime      @default(now()) @map("joined_at")
-  leftAt         DateTime?     @map("left_at")
-  isActive       Boolean       @default(true) @map("is_active")
-  languageId     String?       @map("language_id")
-  language       Language?     @relation(fields: [languageId], references: [id], onDelete: SetNull)
-  /// Ознакомление с правилами группы подтверждено.
-  groupRulesAccepted Boolean @default(false) @map("group_rules_accepted")
+  id                 String       @id @default(uuid())
+  telegramChatId     BigInt       @map("telegram_chat_id")
+  userId             String       @map("user_id")
+  user               TelegramUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  communityId        String?      @map("community_id")
+  community          Community?   @relation(fields: [communityId], references: [id], onDelete: SetNull)
+  joinedAt           DateTime     @default(now()) @map("joined_at")
+  leftAt             DateTime?    @map("left_at")
+  isActive           Boolean      @default(true) @map("is_active")
+  languageId         String?      @map("language_id")
+  language           Language?    @relation(fields: [languageId], references: [id], onDelete: SetNull)
+  /// Confirmation of review of group rules
+  groupRulesAccepted Boolean      @default(false) @map("group_rules_accepted")
 
   @@unique([telegramChatId, userId])
   @@index([telegramChatId])
@@ -115,14 +115,14 @@ model GroupChatMembership {
   @@map("group_chat_memberships")
 }
 
-/// Сколько минут суммарно один пользователь (Telegram) может забронировать в группе в каждый день недели (ISO 1–7).
-/// День недели и календарная дата — в часовом поясе площадки (`Resource.timeZone`) при оформлении брони. null = без лимита.
+/// The total number of minutes a single user (Telegram) can reserve in a group each day of the week (ISO 1–7)
+/// The day of the week and calendar date are based on the platform's time zone (`Resource.timeZone`) at the time the reservation is made. null = no limit
 model CommunityUserBookingLimit {
-  id           String    @id @default(uuid())
-  communityId  String    @map("community_id")
-  community    Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
-  weekday      Int
-  maxMinutes   Int?      @map("max_minutes")
+  id          String    @id @default(uuid())
+  communityId String    @map("community_id")
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  weekday     Int
+  maxMinutes  Int?      @map("max_minutes")
 
   @@unique([communityId, weekday])
   @@index([communityId])
@@ -130,21 +130,21 @@ model CommunityUserBookingLimit {
 }
 
 model Resource {
-  id            String                 @id @default(uuid())
-  name          String
-  address       String?
-  timeZone      String                 @map("time_zone")
-  visibility    ResourceVisibility     @default(ACTIVE) @map("visibility")
-  communityId   String                 @map("community_id")
-  community     Community              @relation(fields: [communityId], references: [id], onDelete: Cascade)
-  bookings      Booking[]
-  workingHours  ResourceWorkingHours[]
+  id           String                 @id @default(uuid())
+  name         String
+  address      String?
+  timeZone     String                 @map("time_zone")
+  visibility   ResourceVisibility     @default(ACTIVE) @map("visibility")
+  communityId  String                 @map("community_id")
+  community    Community              @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  bookings     Booking[]
+  workingHours ResourceWorkingHours[]
 
   @@index([communityId])
   @@map("resources")
 }
 
-/// Часы работы площадки по дню недели (ISO 1 = пн … 7 = вс).
+/// Site operating hours by day of the week (ISO 1 = Mon … 7 = Sun)
 model ResourceWorkingHours {
   id            String   @id @default(uuid())
   resourceId    String   @map("resource_id")
@@ -160,40 +160,46 @@ model ResourceWorkingHours {
 }
 
 model Booking {
-  id                  String        @id @default(uuid())
-  resourceId          String        @map("resource_id")
-  resource            Resource      @relation(fields: [resourceId], references: [id], onDelete: Cascade)
-  sportKindCode       SportKindCode @map("sport_kind_code")
-  sportKind           SportKind     @relation(fields: [sportKindCode], references: [sportKindCode])
-  userId              BigInt        @map("user_id")
-  userName            String?       @map("user_name")
-  startTime           DateTime      @map("start_time")
-  endTime             DateTime      @map("end_time")
-  status              BookingStatus @default(ACTIVE)
-  reminderSent        Boolean       @default(false) @map("reminder_sent")
-  isLookingForPlayers Boolean       @default(false) @map("is_looking_for_players")
-  requiredPlayers     Int           @default(0) @map("required_players")
-  createdAt           DateTime      @default(now()) @map("created_at")
+  id                  String                      @id @default(uuid())
+  resourceId          String                      @map("resource_id")
+  resource            Resource                    @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  sportKindCode       SportKindCode               @map("sport_kind_code")
+  sportKind           SportKind                   @relation(fields: [sportKindCode], references: [sportKindCode])
+  userId              BigInt                      @map("user_id")
+  userName            String?                     @map("user_name")
+  startTime           DateTime                    @map("start_time")
+  endTime             DateTime                    @map("end_time")
+  status              BookingStatus               @default(ACTIVE)
+  reminderSent        Boolean                     @default(false) @map("reminder_sent")
+  isLookingForPlayers Boolean                     @default(false) @map("is_looking_for_players")
+  requiredPlayers     Int                         @default(0) @map("required_players")
+  createdAt           DateTime                    @default(now()) @map("created_at")
   lookingParticipants BookingLookingParticipant[]
 
   @@index([resourceId, status])
   @@map("bookings")
 }
 
-/// Кто присоединился к брони через «Свободные места»: на каждое нажатие +1 к peopleCount и −1 к booking.required_players.
+/// Who has joined the reservation via “Available Spots”: for each click, add 1 to `peopleCount` and subtract 1 from `booking.required_players`
 model BookingLookingParticipant {
-  id               String   @id @default(uuid())
-  bookingId        String   @map("booking_id")
-  booking          Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  telegramUserId   BigInt   @map("telegram_user_id")
-  /** Сколько раз пользователь нажал кнопку (= сколько человек с его стороны). */
-  peopleCount      Int      @default(1) @map("people_count")
-  /** id последнего ЛС с деталями игры (удаляем перед отправкой обновлённого текста). */
-  lastDmMessageId  Int?     @map("last_dm_message_id")
-  /** Напоминание за ~15 мин до начала отправлено этому участнику. */
-  reminderSent     Boolean  @default(false) @map("reminder_sent")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  id             String  @id @default(uuid())
+  bookingId      String  @map("booking_id")
+  booking        Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  telegramUserId BigInt  @map("telegram_user_id")
+
+  /// How many times the user clicked the button (= how many people on their end)
+
+  peopleCount Int @default(1) @map("people_count")
+
+  /// ID of the last private message containing game details (remove before sending the updated text)
+
+  lastDmMessageId Int? @map("last_dm_message_id")
+
+  /// A reminder was sent to this participant about 15 minutes before the start
+
+  reminderSent Boolean  @default(false) @map("reminder_sent")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@unique([bookingId, telegramUserId])
   @@index([bookingId])

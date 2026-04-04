@@ -1,4 +1,4 @@
--- Расписание по дням недели: 7 строк на ресурс; колонки slot_* с resources убираем.
+-- Schedule by day of the week: 7 rows per resource; remove the slot_* columns from resources.
 
 CREATE TABLE "resource_working_hours" (
     "id" TEXT NOT NULL,

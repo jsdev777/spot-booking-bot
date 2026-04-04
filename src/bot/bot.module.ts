@@ -14,7 +14,6 @@ import { BotUpdate } from './bot.update';
       useFactory: (config: ConfigService) => ({
         token: config.getOrThrow<string>('BOT_TOKEN'),
         launchOptions: {
-          // chat_member: в супергруппах бот обычно должен быть администратором, иначе апдейты о других участниках не приходят.
           allowedUpdates: [
             'message',
             'callback_query',

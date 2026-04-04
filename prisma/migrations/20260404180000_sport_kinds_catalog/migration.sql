@@ -1,13 +1,13 @@
 -- CreateTable
 CREATE TABLE "sport_kinds" (
     "code" "SportType" NOT NULL,
-    "name_ru" TEXT NOT NULL,
+    "name_ua" TEXT NOT NULL,
     CONSTRAINT "sport_kinds_pkey" PRIMARY KEY ("code")
 );
 
--- Записи справочника: теннис, футбол, баскетбол
-INSERT INTO "sport_kinds" ("code", "name_ru") VALUES
-    ('TENNIS', 'Теннис'),
+-- Directory entries: tennis, soccer, basketball
+INSERT INTO "sport_kinds" ("code", "name_ua") VALUES
+    ('TENNIS', 'Теніс'),
     ('FOOTBALL', 'Футбол'),
     ('BASKETBALL', 'Баскетбол');
 

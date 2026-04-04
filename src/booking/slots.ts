@@ -55,7 +55,7 @@ export function isHourBookable(
   return Number.isInteger(hour) && hour >= minHour && hour <= maxHour;
 }
 
-/** Старт брони в :00 или :30 в пределах [minHour, maxHour]. */
+/** Bookings start at :00 or :30 within the range [minHour, maxHour]. */
 export function isStartSlotBookable(
   hour: number,
   minute: number,

@@ -6,8 +6,8 @@ CREATE TABLE "languages" (
     CONSTRAINT "languages_pkey" PRIMARY KEY ("id")
 );
 
--- Стартовая запись для дальнейшего i18n (можно добавлять en, uk, …)
-INSERT INTO "languages" ("id", "name_native") VALUES ('ru', 'Русский');
+-- Placeholder entry for future i18n (you can add en, uk, …)
+INSERT INTO "languages" ("id", "name_native") VALUES ('ua', 'Український');
 
 -- AlterTable
 ALTER TABLE "group_chat_memberships" ADD COLUMN "language_id" TEXT;

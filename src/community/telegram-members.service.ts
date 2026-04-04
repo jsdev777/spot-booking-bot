@@ -9,7 +9,7 @@ const IN_CHAT_STATUSES = new Set([
 ]);
 
 export type RecordJoinResult = {
-  /** Нужно показать правила и дождаться кнопки (новый вход в чат). */
+  /** Display the rules and wait for the button (new chat entry). */
   pendingGroupRules: boolean;
   rulesText: string | null;
 };
@@ -18,14 +18,14 @@ export type RecordJoinResult = {
 export class TelegramMembersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Пользователь считается состоящим в чате при этих статусах chat_member. */
+  /** A user is considered to be in the chat if they have one of these chat_member statuses. */
   static isStatusInChat(status: string): boolean {
     return IN_CHAT_STATUSES.has(status);
   }
 
   /**
-   * Обычный участник (не админ группы) должен принять правила, прежде чем пользоваться ботом.
-   * true = доступ к брони/меню заблокирован.
+   * Regular members (non-group admins) must accept the rules before using the bot.
+   * true = access to the armor/menu is blocked.
    */
   async participantMustAcceptGroupRules(params: {
     telegramChatId: bigint;
@@ -106,7 +106,7 @@ export class TelegramMembersService {
     username?: string;
     firstName?: string;
     lastName?: string;
-    /** Админ/creator чата в Telegram — правила не блокируют, сразу в сообществе. */
+    /** Telegram chat admin/creator — the rules don't block you; you're added to the community right away. */
     treatAsGroupAdmin?: boolean;
   }): Promise<RecordJoinResult> {
     const comm = await this.prisma.community.findUnique({

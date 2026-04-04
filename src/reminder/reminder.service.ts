@@ -57,7 +57,7 @@ export class ReminderService {
         if (!this.missingSchemaLogged) {
           this.missingSchemaLogged = true;
           this.logger.warn(
-            'Таблицы в БД отсутствуют. Выполните: npx prisma migrate deploy',
+            'Таблиці в БД відсутні. Виконайте: npx prisma migrate deploy',
           );
         }
         return;
@@ -69,7 +69,7 @@ export class ReminderService {
       const tz = b.resource.timeZone;
       const localTime = formatInTimeZone(b.startTime, tz, 'HH:mm');
       const place = b.resource.name;
-      const text = `Напоминание: Игра через 15 минут! ${place}, начало в ${localTime}`;
+      const text = `Нагадування: Гра розпочнеться за 15 хвилин! ${place}, початок в ${localTime}`;
       const organizerId = Number(b.userId);
 
       if (!b.reminderSent) {
