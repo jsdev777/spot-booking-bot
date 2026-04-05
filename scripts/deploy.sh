@@ -32,12 +32,21 @@ fi
 
 # Run database migrations
 echo "🔄 Running database migrations..."
+
+# Debug: Check if DATABASE_URL is set
+if [ -z "$DATABASE_URL" ]; then
+  echo "❌ ERROR: DATABASE_URL is not set!"
+  exit 1
+else
+  echo "✅ DATABASE_URL is set (length: ${#DATABASE_URL} chars)"
+fi
+
 docker run --rm \
   --network host \
   --entrypoint sh \
   -e DATABASE_URL="$DATABASE_URL" \
   ${IMAGE_NAME}:${IMAGE_TAG} \
-  -c "npx prisma generate && npx prisma migrate deploy"
+  -c 'echo "Testing DATABASE_URL in container..."; if [ -z "$DATABASE_URL" ]; then echo "ERROR: DATABASE_URL not in container!"; exit 1; fi; npx prisma generate && npx prisma migrate deploy'
 
 if [ $? -ne 0 ]; then
   echo "❌ Migrations failed!"
