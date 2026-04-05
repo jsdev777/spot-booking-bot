@@ -1,270 +1,107 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Spot Booking Bot
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Telegram-бот для бронювання спортивних майданчиків у групових чатах. Бекенд на [NestJS](https://nestjs.com/), дані — PostgreSQL через Prisma.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Основні можливості
 
-## Description
+### Для учасників групи
 
-Telegram bot for spot booking built with [NestJS](https://github.com/nestjs/nest) framework and Prisma ORM.
+- **Бронювання слоту** — покроковий сценарій: вид спорту (теніс, футбол, баскетбол), майданчик, день (сьогодні / завтра), час початку (:00 або :30), тривалість (1, 1,5 або 2 години).
+- **Пошук партнерів** — під час створення броні можна позначити, що шукаєте гравців, і вказати потрібну кількість місць; інші учасники можуть приєднатися через розділ «Вільні місця».
+- **Мої бронювання** — перегляд і скасування своїх активних броней.
+- **Розклад дня** — наочна сітка зайнятості обраного майданчика.
+- **Вільні місця** — броні з пошуком гравців, до яких можна долучитися.
+- **Правила спільноти** — якщо адміністратор задав текст правил, новий учасник має їх прийняти (кнопка в особистих повідомленнях або в групі), перш ніж користуватися меню бронювання.
+- **Нагадування** — за кілька хвилин до початку гри бот може надіслати нагадування в особисті повідомлення (потрібно відкрити діалог із ботом і натиснути Start).
 
-## Prerequisites
+### Для адміністраторів групи
 
-- Node.js 20.x or higher
-- PostgreSQL database
-- Docker (for containerized deployment)
-- Telegram Bot Token
+- **`/setup`** і кнопка «Налаштування» — майстер налаштування в **особистих повідомленнях** з ботом (відповіді в ОП не видно в групі).
+- **Кілька майданчиків** на одну спільноту (групу): назва, адреса, часовий пояс, години роботи за днями тижня, статус (активний / прихований для звичайних учасників).
+- **Вікно бронювання** — інтервал місцевого часу, коли звичайні учасники можуть створювати броні; адміністратори групи можуть бронювати поза цим вікном.
+- **Ліміти на користувача** — максимум хвилин бронювання на день за днями тижня (або без обмежень).
+- **Правила** — задання та оновлення тексту правил для групи.
 
-## Project setup
+### Технічна сторона
 
-1. Clone the repository:
+- Облік учасників за оновленнями Telegram (`chat_member`), прив’язка до спільноти та прапорця прийняття правил.
+- Автоматична зміна статусів броней (очікування / активна / завершена) за розкладом.
+- HTTP-ендпоінт **health** для перевірки працездатності під час деплою.
+
+## Вимоги
+
+- Node.js 20+
+- PostgreSQL
+- Docker (за бажанням, для compose / образу)
+- Токен бота в [@BotFather](https://t.me/BotFather) (зберігайте лише в змінних оточення або секретах CI, не комітьте в репозиторій)
+
+## Встановлення та запуск
+
+1. Клонувати репозиторій і встановити залежності:
+
 ```bash
-git clone <repository-url>
+git clone <url-репозиторію>
 cd spot-booking-bot
-```
-
-2. Install dependencies:
-```bash
 npm install
 ```
 
-3. Set up environment variables:
+2. Скопіювати приклад оточення й задати свої значення:
+
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` file with your configuration:
-```env
-DATABASE_URL="postgresql://user:password@localhost:5432/spot_booking"
-BOT_TOKEN="your-telegram-bot-token"
-PORT=3000
-```
+У `.env` потрібні щонайменше:
 
-4. Run database migrations:
+- `DATABASE_URL` — рядок підключення до PostgreSQL
+- `BOT_TOKEN` — токен Telegram-бота
+- `PORT` — порт HTTP-сервера (за замовчуванням можна залишити як у прикладі)
+
+3. Застосувати міграції:
+
 ```bash
 npm run prisma:migrate
 ```
 
-## Compile and run the project
+4. Запуск:
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm run start:dev   # розробка з перезапуском
+npm run start:prod  # продакшен (після npm run build)
 ```
 
-## Run tests
+## Тести
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm run test
+npm run test:e2e
+npm run test:cov
 ```
 
 ## Docker
 
-### Local Development with Docker Compose
-
-Run the application with PostgreSQL using Docker Compose:
+Локально з PostgreSQL:
 
 ```bash
 docker-compose up -d
 ```
 
-This will start both the application and PostgreSQL database.
+Збірка образу й запуск контейнера — передайте `DATABASE_URL` і `BOT_TOKEN` через `-e` або секрети оркестратора, **без** збереження їх в образі.
 
-### Build Docker Image
+## CI/CD (GitHub Actions → VPS)
 
-```bash
-docker build -t spot-booking-bot:latest .
-```
+У репозиторії налаштовані перевірки (лінт, тести, збірка) і деплой на сервер (Docker, міграції, health-check).
 
-### Run Docker Container
+У секретах GitHub (або аналозі) мають бути задані, зокрема:
 
-```bash
-docker run -d \
-  --name spot-booking-bot \
-  -p 3000:3000 \
-  -e DATABASE_URL="postgresql://user:password@host:5432/spot_booking" \
-  -e BOT_TOKEN="your-bot-token" \
-  spot-booking-bot:latest
-```
+- доступ по SSH до сервера (хост, користувач, **приватний** ключ — лише в секретах, ніколи в коді);
+- `DATABASE_URL` для продакшену;
+- `BOT_TOKEN`;
+- шлях деплою та за потреби порт застосунку.
 
-## CI/CD Pipeline
+Конкретні значення, ключі й токени в документації не наводяться.
 
-This project uses GitHub Actions for continuous integration and deployment to Hetzner VPS.
+## Корисні посилання
 
-### CI Workflow
-
-Triggers on all pull requests and pushes to `main` branch:
-
-1. **Lint and Test**
-   - Runs ESLint for code quality checks
-   - Executes Jest tests
-   - Uploads coverage reports
-
-2. **Build**
-   - Compiles TypeScript application
-   - Verifies build artifacts
-
-### CD Workflow
-
-Automatically deploys to Hetzner VPS when code is pushed to `main` branch:
-
-1. **Build Docker Image** - Creates production Docker image with git SHA tag
-2. **Transfer Image** - Securely transfers image to VPS via SCP
-3. **Run Migrations** - Executes Prisma migrations on production database
-4. **Deploy** - Starts new container with zero-downtime deployment
-5. **Health Check** - Verifies application is running correctly
-
-### Required GitHub Secrets
-
-Configure these secrets in your GitHub repository (Settings → Secrets and variables → Actions):
-
-| Secret | Description | Example |
-|--------|-------------|---------|
-| `SSH_HOST` | Hetzner VPS IP or hostname | `123.45.67.89` |
-| `SSH_USER` | SSH username | `root` or `ubuntu` |
-| `SSH_PRIVATE_KEY` | Private SSH key for authentication | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
-| `SSH_PORT` | SSH port (optional, defaults to 22) | `22` |
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@localhost:5432/db` |
-| `BOT_TOKEN` | Telegram bot token | `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11` |
-| `DEPLOY_PATH` | Deployment directory on VPS | `/home/user/spot-booking-bot` |
-| `PORT` | Application port (optional, defaults to 3000) | `3000` |
-
-### Setting Up Deployment on Hetzner VPS
-
-1. **Ensure Docker is installed** on your Hetzner server:
-```bash
-curl -fsSL https://get.docker.com -o get-docker.sh
-sh get-docker.sh
-```
-
-2. **Create deployment directory**:
-```bash
-mkdir -p /home/user/spot-booking-bot
-```
-
-3. **Setup SSH access**:
-   - Generate SSH key pair (if not already done)
-   - Add public key to VPS: `~/.ssh/authorized_keys`
-   - Add private key to GitHub secrets as `SSH_PRIVATE_KEY`
-
-4. **Configure PostgreSQL** (via FastPanel):
-   - Ensure database exists
-   - Grant necessary privileges for migrations
-   - Note the connection string for `DATABASE_URL` secret
-
-5. **Test deployment**:
-```bash
-# Push to main branch or manually trigger workflow
-git push origin main
-```
-
-6. **Monitor deployment**:
-   - Check GitHub Actions tab for workflow status
-   - SSH into VPS and check logs:
-```bash
-docker logs -f spot-booking-bot
-```
-
-### Manual Deployment
-
-If you need to deploy manually without GitHub Actions:
-
-1. Build and save Docker image:
-```bash
-docker build -t spot-booking-bot:latest .
-docker save spot-booking-bot:latest -o spot-booking-bot.tar
-```
-
-2. Transfer to VPS:
-```bash
-scp spot-booking-bot.tar user@your-server:/path/to/deploy/
-scp scripts/deploy.sh user@your-server:/path/to/deploy/
-```
-
-3. Deploy on VPS:
-```bash
-ssh user@your-server
-cd /path/to/deploy/
-chmod +x deploy.sh
-./deploy.sh latest
-```
-
-### Rollback
-
-To rollback to a previous version:
-
-1. Find the image tag (git SHA) you want to rollback to
-2. SSH into VPS:
-```bash
-docker images spot-booking-bot
-docker stop spot-booking-bot
-docker rm spot-booking-bot
-docker run -d --name spot-booking-bot --network host \
-  -e DATABASE_URL="..." \
-  -e BOT_TOKEN="..." \
-  spot-booking-bot:<previous-tag>
-```
-
-### Monitoring
-
-- **Container status**: `docker ps -f name=spot-booking-bot`
-- **Application logs**: `docker logs -f spot-booking-bot`
-- **Resource usage**: `docker stats spot-booking-bot`
-- **Health check**: `curl http://localhost:3000/health`
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- [Документація NestJS](https://docs.nestjs.com)
+- [Prisma](https://www.prisma.io/docs)
