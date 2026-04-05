@@ -62,7 +62,7 @@ jobs:
 
       - name: Deploy application
         run: |
-          ssh -p ${{ secrets.SSH_PORT || 22 }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+          ssh -p ${{ secrets.SSH_PORT || 22 }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << EOF
             cd ${{ secrets.DEPLOY_PATH }}
             chmod +x deploy.sh
             
