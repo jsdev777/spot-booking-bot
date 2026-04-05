@@ -15,8 +15,3 @@ README.md
 test
 *.spec.ts
 .github
-.eslintrc.js
-.prettierrc
-tsconfig.json
-tsconfig.build.json
-nest-cli.json
