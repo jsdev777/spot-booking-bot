@@ -23,12 +23,43 @@
 
 ## Description
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+Telegram bot for spot booking built with [NestJS](https://github.com/nestjs/nest) framework and Prisma ORM.
+
+## Prerequisites
+
+- Node.js 20.x or higher
+- PostgreSQL database
+- Docker (for containerized deployment)
+- Telegram Bot Token
 
 ## Project setup
 
+1. Clone the repository:
 ```bash
-$ npm install
+git clone <repository-url>
+cd spot-booking-bot
+```
+
+2. Install dependencies:
+```bash
+npm install
+```
+
+3. Set up environment variables:
+```bash
+cp .env.example .env
+```
+
+Edit `.env` file with your configuration:
+```env
+DATABASE_URL="postgresql://user:password@localhost:5432/spot_booking"
+BOT_TOKEN="your-telegram-bot-token"
+PORT=3000
+```
+
+4. Run database migrations:
+```bash
+npm run prisma:migrate
 ```
 
 ## Compile and run the project
@@ -57,18 +88,159 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
-## Deployment
+## Docker
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+### Local Development with Docker Compose
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Run the application with PostgreSQL using Docker Compose:
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+docker-compose up -d
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+This will start both the application and PostgreSQL database.
+
+### Build Docker Image
+
+```bash
+docker build -t spot-booking-bot:latest .
+```
+
+### Run Docker Container
+
+```bash
+docker run -d \
+  --name spot-booking-bot \
+  -p 3000:3000 \
+  -e DATABASE_URL="postgresql://user:password@host:5432/spot_booking" \
+  -e BOT_TOKEN="your-bot-token" \
+  spot-booking-bot:latest
+```
+
+## CI/CD Pipeline
+
+This project uses GitHub Actions for continuous integration and deployment to Hetzner VPS.
+
+### CI Workflow
+
+Triggers on all pull requests and pushes to `main` branch:
+
+1. **Lint and Test**
+   - Runs ESLint for code quality checks
+   - Executes Jest tests
+   - Uploads coverage reports
+
+2. **Build**
+   - Compiles TypeScript application
+   - Verifies build artifacts
+
+### CD Workflow
+
+Automatically deploys to Hetzner VPS when code is pushed to `main` branch:
+
+1. **Build Docker Image** - Creates production Docker image with git SHA tag
+2. **Transfer Image** - Securely transfers image to VPS via SCP
+3. **Run Migrations** - Executes Prisma migrations on production database
+4. **Deploy** - Starts new container with zero-downtime deployment
+5. **Health Check** - Verifies application is running correctly
+
+### Required GitHub Secrets
+
+Configure these secrets in your GitHub repository (Settings → Secrets and variables → Actions):
+
+| Secret | Description | Example |
+|--------|-------------|---------|
+| `SSH_HOST` | Hetzner VPS IP or hostname | `123.45.67.89` |
+| `SSH_USER` | SSH username | `root` or `ubuntu` |
+| `SSH_PRIVATE_KEY` | Private SSH key for authentication | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
+| `SSH_PORT` | SSH port (optional, defaults to 22) | `22` |
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@localhost:5432/db` |
+| `BOT_TOKEN` | Telegram bot token | `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11` |
+| `DEPLOY_PATH` | Deployment directory on VPS | `/home/user/spot-booking-bot` |
+| `PORT` | Application port (optional, defaults to 3000) | `3000` |
+
+### Setting Up Deployment on Hetzner VPS
+
+1. **Ensure Docker is installed** on your Hetzner server:
+```bash
+curl -fsSL https://get.docker.com -o get-docker.sh
+sh get-docker.sh
+```
+
+2. **Create deployment directory**:
+```bash
+mkdir -p /home/user/spot-booking-bot
+```
+
+3. **Setup SSH access**:
+   - Generate SSH key pair (if not already done)
+   - Add public key to VPS: `~/.ssh/authorized_keys`
+   - Add private key to GitHub secrets as `SSH_PRIVATE_KEY`
+
+4. **Configure PostgreSQL** (via FastPanel):
+   - Ensure database exists
+   - Grant necessary privileges for migrations
+   - Note the connection string for `DATABASE_URL` secret
+
+5. **Test deployment**:
+```bash
+# Push to main branch or manually trigger workflow
+git push origin main
+```
+
+6. **Monitor deployment**:
+   - Check GitHub Actions tab for workflow status
+   - SSH into VPS and check logs:
+```bash
+docker logs -f spot-booking-bot
+```
+
+### Manual Deployment
+
+If you need to deploy manually without GitHub Actions:
+
+1. Build and save Docker image:
+```bash
+docker build -t spot-booking-bot:latest .
+docker save spot-booking-bot:latest -o spot-booking-bot.tar
+```
+
+2. Transfer to VPS:
+```bash
+scp spot-booking-bot.tar user@your-server:/path/to/deploy/
+scp scripts/deploy.sh user@your-server:/path/to/deploy/
+```
+
+3. Deploy on VPS:
+```bash
+ssh user@your-server
+cd /path/to/deploy/
+chmod +x deploy.sh
+./deploy.sh latest
+```
+
+### Rollback
+
+To rollback to a previous version:
+
+1. Find the image tag (git SHA) you want to rollback to
+2. SSH into VPS:
+```bash
+docker images spot-booking-bot
+docker stop spot-booking-bot
+docker rm spot-booking-bot
+docker run -d --name spot-booking-bot --network host \
+  -e DATABASE_URL="..." \
+  -e BOT_TOKEN="..." \
+  spot-booking-bot:<previous-tag>
+```
+
+### Monitoring
+
+- **Container status**: `docker ps -f name=spot-booking-bot`
+- **Application logs**: `docker logs -f spot-booking-bot`
+- **Resource usage**: `docker stats spot-booking-bot`
+- **Health check**: `curl http://localhost:3000/health`
 
 ## Resources
 

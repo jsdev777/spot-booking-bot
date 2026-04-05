@@ -1,0 +1,95 @@
+name: CD
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Hetzner
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          IMAGE_TAG="${GITHUB_SHA::7}"
+          echo "Building image with tag: $IMAGE_TAG"
+          docker build -t spot-booking-bot:$IMAGE_TAG -t spot-booking-bot:latest .
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Save Docker image
+        run: |
+          echo "Saving Docker image to tar archive..."
+          docker save spot-booking-bot:$IMAGE_TAG -o spot-booking-bot-$IMAGE_TAG.tar
+          ls -lh spot-booking-bot-$IMAGE_TAG.tar
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Create deployment directory
+        run: |
+          ssh -p ${{ secrets.SSH_PORT || 22 }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "mkdir -p ${{ secrets.DEPLOY_PATH }}"
+
+      - name: Transfer Docker image to VPS
+        run: |
+          echo "Transferring image to Hetzner VPS..."
+          scp -P ${{ secrets.SSH_PORT || 22 }} \
+            spot-booking-bot-$IMAGE_TAG.tar \
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/
+
+      - name: Transfer deployment script
+        run: |
+          echo "Transferring deployment script..."
+          scp -P ${{ secrets.SSH_PORT || 22 }} \
+            scripts/deploy.sh \
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/
+
+      - name: Deploy application
+        run: |
+          ssh -p ${{ secrets.SSH_PORT || 22 }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+            cd ${{ secrets.DEPLOY_PATH }}
+            chmod +x deploy.sh
+            
+            export DATABASE_URL="${{ secrets.DATABASE_URL }}"
+            export BOT_TOKEN="${{ secrets.BOT_TOKEN }}"
+            export PORT="${{ secrets.PORT || 3000 }}"
+            export DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
+            
+            ./deploy.sh ${{ env.IMAGE_TAG }}
+          EOF
+
+      - name: Verify deployment
+        run: |
+          echo "✅ Deployment completed successfully!"
+          ssh -p ${{ secrets.SSH_PORT || 22 }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "docker ps -f name=spot-booking-bot"
+
+      - name: Cleanup local artifacts
+        if: always()
+        run: |
+          rm -f spot-booking-bot-*.tar
+          rm -f ~/.ssh/id_rsa
+
+      - name: Send deployment notification
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "🎉 Deployment to Hetzner completed successfully!"
+            echo "📦 Image tag: ${{ env.IMAGE_TAG }}"
+            echo "🚀 Application is now running on production"
+          else
+            echo "❌ Deployment failed!"
+          fi
