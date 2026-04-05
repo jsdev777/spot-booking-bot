@@ -1,5 +1,5 @@
 import type { BookingDurationMinutes } from '../booking/booking-intervals';
-import type { SportKindCode } from '../generated/prisma/client';
+import type { SportKindCode } from '@prisma/client';
 
 /** Menu state in the group (per user). */
 export type MenuState =

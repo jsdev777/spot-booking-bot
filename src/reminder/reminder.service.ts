@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { formatInTimeZone } from 'date-fns-tz';
 import { InjectBot } from 'nestjs-telegraf';
 import { Context, Telegraf } from 'telegraf';
-import { BookingStatus, Prisma } from '../generated/prisma/client';
+import { BookingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 type BookingReminder = Prisma.BookingGetPayload<{

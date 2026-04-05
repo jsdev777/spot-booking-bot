@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import { Prisma, ResourceVisibility } from '../generated/prisma/client';
+import { Prisma, ResourceVisibility } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 async function replaceUniformWorkingHours(

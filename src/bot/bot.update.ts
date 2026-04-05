@@ -20,7 +20,7 @@ import { CommunityService } from '../community/community.service';
 import { TelegramMembersService } from '../community/telegram-members.service';
 import { ResourceService } from '../community/resource.service';
 import { SETUP_TIMEZONES } from '../community/setup.constants';
-import { ResourceVisibility, SportKindCode } from '../generated/prisma/client';
+import { ResourceVisibility, SportKindCode } from '@prisma/client';
 import {
   isGroupAdmin,
   isGroupChat,

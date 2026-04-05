@@ -15,7 +15,7 @@ import {
   BookingStatus,
   Prisma,
   SportKindCode,
-} from '../generated/prisma/client';
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ResourceService } from '../community/resource.service';
 import {

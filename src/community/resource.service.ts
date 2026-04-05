@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ResourceVisibility } from '../generated/prisma/client';
+import { ResourceVisibility } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()

@@ -27,8 +27,6 @@ COPY prisma.config.ts ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/src/generated ./src/generated
 COPY scripts/entrypoint.sh ./scripts/entrypoint.sh
 
 RUN chmod +x ./scripts/entrypoint.sh
