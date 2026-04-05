@@ -32,12 +32,14 @@ const SPORT_LABEL: Record<SportKindCode, string> = {
   [SportKindCode.TENNIS]: 'Теніс',
   [SportKindCode.FOOTBALL]: 'Футбол',
   [SportKindCode.BASKETBALL]: 'Баскетбол',
+  [SportKindCode.VOLLEYBALL]: 'Волейбол',
 };
 
 const SPORT_ORDER: SportKindCode[] = [
   SportKindCode.TENNIS,
   SportKindCode.FOOTBALL,
   SportKindCode.BASKETBALL,
+  SportKindCode.VOLLEYBALL,
 ];
 
 const KIND_LABEL_TO_CODE = new Map<string, SportKindCode>(

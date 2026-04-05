@@ -11,6 +11,7 @@ enum SportKindCode {
   TENNIS
   FOOTBALL
   BASKETBALL
+  VOLLEYBALL
 
   @@map("SportType")
 }
