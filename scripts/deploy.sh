@@ -43,9 +43,10 @@ fi
 
 docker run --rm \
   --network host \
+  --entrypoint /bin/sh \
   -e DATABASE_URL="$DATABASE_URL" \
   ${IMAGE_NAME}:${IMAGE_TAG} \
-  sh -c "npx prisma generate && npx prisma migrate deploy"
+  -c "npx prisma generate && npx prisma migrate deploy"
 
 if [ $? -ne 0 ]; then
   echo "❌ Migrations failed!"
