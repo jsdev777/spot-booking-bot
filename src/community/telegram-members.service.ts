@@ -139,8 +139,6 @@ export class TelegramMembersService {
     username?: string;
     firstName?: string;
     lastName?: string;
-    /** Telegram chat admin/creator — the rules don't block you; you're added to the community right away. */
-    treatAsGroupAdmin?: boolean;
   }): Promise<RecordJoinResult> {
     const comm = await this.prisma.community.findUnique({
       where: { telegramChatId: params.telegramChatId },
@@ -148,7 +146,6 @@ export class TelegramMembersService {
     });
     const rulesBody = comm?.rules?.text?.trim() ?? '';
     const hasRules = Boolean(comm && rulesBody.length > 0);
-    const rulesRequired = hasRules && params.treatAsGroupAdmin !== true;
 
     await this.prisma.$transaction(async (tx) => {
       const user = await tx.telegramUser.upsert({
@@ -202,44 +199,7 @@ export class TelegramMembersService {
         return;
       }
 
-      if (rulesRequired) {
-        if (existing?.groupRulesAccepted) {
-          await tx.groupChatMembership.update({
-            where: { id: existing.id },
-            data: {
-              isActive: true,
-              leftAt: null,
-              joinedAt: new Date(),
-              communityId: comm.id,
-              groupRulesAccepted: true,
-            },
-          });
-        } else {
-          await tx.groupChatMembership.upsert({
-            where: {
-              telegramChatId_userId: {
-                telegramChatId: params.telegramChatId,
-                userId: user.id,
-              },
-            },
-            create: {
-              telegramChatId: params.telegramChatId,
-              userId: user.id,
-              communityId: null,
-              groupRulesAccepted: false,
-              isActive: true,
-              leftAt: null,
-            },
-            update: {
-              isActive: true,
-              leftAt: null,
-              joinedAt: new Date(),
-              communityId: null,
-              groupRulesAccepted: false,
-            },
-          });
-        }
-      } else {
+      if (!hasRules) {
         await tx.groupChatMembership.upsert({
           where: {
             telegramChatId_userId: {
@@ -263,10 +223,51 @@ export class TelegramMembersService {
             groupRulesAccepted: true,
           },
         });
+        return;
+      }
+
+      if (existing?.groupRulesAccepted) {
+        await tx.groupChatMembership.update({
+          where: { id: existing.id },
+          data: {
+            isActive: true,
+            leftAt: null,
+            joinedAt: new Date(),
+            communityId: comm.id,
+            groupRulesAccepted: true,
+          },
+        });
+      } else {
+        await tx.groupChatMembership.upsert({
+          where: {
+            telegramChatId_userId: {
+              telegramChatId: params.telegramChatId,
+              userId: user.id,
+            },
+          },
+          create: {
+            telegramChatId: params.telegramChatId,
+            userId: user.id,
+            communityId: null,
+            groupRulesAccepted: false,
+            isActive: true,
+            leftAt: null,
+          },
+          update: {
+            isActive: true,
+            leftAt: null,
+            joinedAt: new Date(),
+            communityId: null,
+            groupRulesAccepted: false,
+          },
+        });
       }
     });
 
-    if (!rulesRequired || !comm) {
+    if (!comm) {
+      return { pendingGroupRules: false, rulesText: null };
+    }
+    if (!hasRules) {
       return { pendingGroupRules: false, rulesText: null };
     }
 
