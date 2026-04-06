@@ -100,6 +100,7 @@ const SETUP_KB_NO_ADDRESS = 'Без адреси';
 /** Без зайвих пробілів на кінці — інакше після `.trim()` у ЛС текст кнопки не збігається. */
 const SETUP_KB_CANCEL = '« Скасування';
 const SETUP_KB_VENUES = 'Усі майданчики';
+const SETUP_KB_GROUP_RULES = 'Правила групи';
 const SETUP_KB_BOOKING_WINDOW = 'Час бронювання в групі';
 const SETUP_KB_BOOKING_LIMIT = 'Ліміт на бронювання';
 const LIMIT_KB_UNLIMITED = 'Без обмежень';
@@ -151,6 +152,7 @@ interface SetupDraft {
     | 'hub'
     | 'list'
     | 'link_pick'
+    | 'rules_edit'
     | 'bw_tz'
     | 'bw_start'
     | 'bw_end'
@@ -2711,8 +2713,9 @@ export class BotUpdate {
 
   private setupVenuesHubReplyMarkup() {
     return Markup.keyboard([
-      [SETUP_KB_VENUES, SETUP_KB_BOOKING_WINDOW],
-      [SETUP_KB_BOOKING_LIMIT, SETUP_KB_LINK_EXISTING_RESOURCE],
+      [SETUP_KB_VENUES, SETUP_KB_GROUP_RULES],
+      [SETUP_KB_BOOKING_WINDOW, SETUP_KB_BOOKING_LIMIT],
+      [SETUP_KB_LINK_EXISTING_RESOURCE],
       [SETUP_KB_CANCEL],
     ])
       .resize()
@@ -2720,7 +2723,7 @@ export class BotUpdate {
   }
 
   private setupHubButtonsHintText(): string {
-    return `«${SETUP_KB_VENUES}» — майданчики, «${SETUP_KB_LINK_EXISTING_RESOURCE}» — привʼязати вже існуючий майданчик, «${SETUP_KB_BOOKING_WINDOW}» — коли учасники можуть бронювати, «${SETUP_KB_BOOKING_LIMIT}» — ліміт годин на одного користувача за днями тижня.`;
+    return `«${SETUP_KB_VENUES}» — майданчики, «${SETUP_KB_GROUP_RULES}» — текст правил для нових учасників, «${SETUP_KB_LINK_EXISTING_RESOURCE}» — привʼязати вже існуючий майданчик, «${SETUP_KB_BOOKING_WINDOW}» — коли учасники можуть бронювати, «${SETUP_KB_BOOKING_LIMIT}» — ліміт годин на одного користувача за днями тижня.`;
   }
 
   private setupHubPromptText(chatTitle: string): string {
@@ -3446,6 +3449,64 @@ export class BotUpdate {
 
     switch (draft.step) {
       case 0: {
+        if (draft.venuesSubstep === 'rules_edit') {
+          if (text === MENU_KB_MAIN) {
+            draft.venuesSubstep = 'hub';
+            this.setupDrafts.set(sk, draft);
+            await this.sendSetupDm(
+              ctx,
+              this.setupHubPromptText(chatTitle),
+              this.setupVenuesHubReplyMarkup(),
+            );
+            return;
+          }
+          if (text === MENU_KB_BACK) {
+            draft.venuesSubstep = 'hub';
+            this.setupDrafts.set(sk, draft);
+            await this.sendSetupDm(
+              ctx,
+              this.setupHubPromptText(chatTitle),
+              this.setupVenuesHubReplyMarkup(),
+            );
+            return;
+          }
+          const rulesText = text.trim();
+          if (!rulesText) {
+            await this.sendSetupDm(
+              ctx,
+              'Текст правил не може бути порожнім. Надішліть текст одним повідомленням або натисніть «Назад».',
+            );
+            return;
+          }
+          if (rulesText.length > 12000) {
+            await this.sendSetupDm(
+              ctx,
+              'Текст правил занадто довгий (максимум 12000 символів).',
+            );
+            return;
+          }
+          try {
+            await this.community.upsertCommunityRulesForChat({
+              telegramChatId: targetGroupChatId,
+              text: rulesText,
+            });
+          } catch (e) {
+            this.logger.error(e instanceof Error ? e.message : e);
+            await this.sendSetupDm(
+              ctx,
+              'Не вдалося зберегти правила. Спробуйте ще раз.',
+            );
+            return;
+          }
+          draft.venuesSubstep = 'hub';
+          this.setupDrafts.set(sk, draft);
+          await this.sendSetupDm(
+            ctx,
+            'Правила групи збережено.',
+            this.setupVenuesHubReplyMarkup(),
+          );
+          return;
+        }
         if (
           await this.handleSetupBookingLimitFlow(
             ctx,
@@ -3488,6 +3549,25 @@ export class BotUpdate {
               ctx,
               'Виберіть майданчик або додайте новий. Часовий пояс, час та адреса вказуються для кожного майданчика окремо.',
               this.setupPickResourceReplyMarkup(list),
+            );
+            return;
+          }
+          if (text === SETUP_KB_GROUP_RULES) {
+            const currentRules =
+              await this.community.getCommunityRulesForChat(targetGroupChatId);
+            draft.venuesSubstep = 'rules_edit';
+            this.setupDrafts.set(sk, draft);
+            await this.sendSetupDm(
+              ctx,
+              currentRules
+                ? `Поточні правила групи:\n\n${currentRules}\n\nНадішліть новий текст одним повідомленням, щоб замінити правила.`
+                : 'Правила групи ще не задані.\n\nНадішліть текст правил одним повідомленням, щоб створити їх.',
+              Markup.keyboard([
+                [MENU_KB_BACK, MENU_KB_MAIN],
+                [SETUP_KB_CANCEL],
+              ])
+                .resize()
+                .persistent(true),
             );
             return;
           }
