@@ -1,7 +1,4 @@
-import {
-  hourSegmentOccupancy,
-  intervalsOverlap,
-} from './booking-intervals';
+import { hourSegmentOccupancy, intervalsOverlap } from './booking-intervals';
 
 describe('intervalsOverlap', () => {
   it('detects overlap', () => {

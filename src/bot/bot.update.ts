@@ -101,6 +101,7 @@ const SETUP_KB_NO_ADDRESS = 'Без адреси';
 const SETUP_KB_CANCEL = '« Скасування';
 const SETUP_KB_VENUES = 'Усі майданчики';
 const SETUP_KB_GROUP_RULES = 'Правила групи';
+const SETUP_KB_ALL_BOOKINGS = 'Усі бронювання';
 const SETUP_KB_BOOKING_WINDOW = 'Час бронювання в групі';
 const SETUP_KB_BOOKING_LIMIT = 'Ліміт на бронювання';
 const LIMIT_KB_UNLIMITED = 'Без обмежень';
@@ -109,6 +110,8 @@ const SETUP_KB_NEW_RESOURCE = '➕ Додати майданчик';
 const SETUP_KB_LINK_EXISTING_RESOURCE = 'Привʼязати існуючий майданчик';
 const SETUP_KB_RESOURCE_ACTIVE = 'Активна';
 const SETUP_KB_RESOURCE_INACTIVE = 'Не активна';
+const SETUP_KB_DELETE_RESOURCE = 'Видалити';
+const SETUP_KB_CONFIRM_DELETE_RESOURCE = 'Підтвердити видалення';
 
 /** ISO weekday 1–7 → подпись (Пн…Вс). */
 const WH_ISO_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд'] as const;
@@ -153,6 +156,8 @@ interface SetupDraft {
     | 'list'
     | 'link_pick'
     | 'rules_edit'
+    | 'all_bookings_pick_day'
+    | 'all_bookings_list'
     | 'bw_tz'
     | 'bw_start'
     | 'bw_end'
@@ -162,8 +167,13 @@ interface SetupDraft {
   bwStartHourDraft?: number;
   /** ISO 1–7 для мастера лимита по дням. */
   limitWeekdayDraft?: number;
+  allBookingsDayOffsetDraft?: 0 | 1;
+  allBookingsRowLabelsDraft?: string[];
+  allBookingsBookingIdsDraft?: string[];
   /** Після часового поясу одразу крок видимості (істотує майданчик), без вибору єдиного «годинника». */
   postTzVisibilityOnly?: boolean;
+  /** Крок 1: очікуємо підтвердження видалення майданчика. */
+  setupResourceDeleteConfirm?: boolean;
 }
 
 interface WhPerDayEditDraft {
@@ -192,7 +202,10 @@ export class BotUpdate {
   private readonly setupBridgeGroupByUser = new Map<number, string>();
   private readonly menuStates = new Map<string, MenuState>();
   private readonly activeGroupByUser = new Map<number, bigint>();
-  private readonly groupPickerLabelsByUser = new Map<number, Map<string, bigint>>();
+  private readonly groupPickerLabelsByUser = new Map<
+    number,
+    Map<string, bigint>
+  >();
   private readonly pendingDmPickerActionByUser = new Map<number, 'setup'>();
   private readonly rulesPromptMessageByUserGroup = new Map<string, number>();
   /** ЛС: предложение после /setup или выбор дня / меню дня (reply-клавиатура внизу). */
@@ -346,12 +359,7 @@ export class BotUpdate {
     chatId: bigint,
     forUserId: number,
   ) {
-    const keys = [
-      MENU_KB_BOOK,
-      MENU_KB_LIST,
-      MENU_KB_GRID,
-      MENU_KB_FREE_SLOTS,
-    ];
+    const keys = [MENU_KB_BOOK, MENU_KB_LIST, MENU_KB_GRID, MENU_KB_FREE_SLOTS];
     if (await isUserAdminOfGroupChat(telegram, chatId, forUserId)) {
       keys.push(MENU_KB_SETUP);
     }
@@ -372,10 +380,7 @@ export class BotUpdate {
       MENU_KB_FREE_SLOTS,
       MENU_KB_SWITCH_GROUP,
     ];
-    if (
-      gid != null &&
-      (await isUserAdminOfGroupChat(telegram, gid, userId))
-    ) {
+    if (gid != null && (await isUserAdminOfGroupChat(telegram, gid, userId))) {
       keys.push(MENU_KB_SETUP);
     }
     keys.push(MENU_KB_MAIN);
@@ -414,8 +419,12 @@ export class BotUpdate {
     telegram: Context['telegram'],
     userId: number,
   ) {
-    const byMembership = await this.telegramMembers.listActiveUserCommunities(userId);
-    const map = new Map<bigint, { telegramChatId: bigint; communityName: string | null }>();
+    const byMembership =
+      await this.telegramMembers.listActiveUserCommunities(userId);
+    const map = new Map<
+      bigint,
+      { telegramChatId: bigint; communityName: string | null }
+    >();
     for (const g of byMembership) {
       map.set(g.telegramChatId, {
         telegramChatId: g.telegramChatId,
@@ -428,7 +437,10 @@ export class BotUpdate {
         continue;
       }
       try {
-        const m = await telegram.getChatMember(c.telegramChatId.toString(), userId);
+        const m = await telegram.getChatMember(
+          c.telegramChatId.toString(),
+          userId,
+        );
         if (!TelegramMembersService.isStatusInChat(m.status)) {
           continue;
         }
@@ -448,7 +460,8 @@ export class BotUpdate {
   ) {
     const rows = kbRowsPaired(
       items.map((g, i) => {
-        const name = g.communityName?.trim() || `Група ${String(g.telegramChatId)}`;
+        const name =
+          g.communityName?.trim() || `Група ${String(g.telegramChatId)}`;
         return `#${i + 1} ${name}`.slice(0, 64);
       }),
     );
@@ -482,7 +495,8 @@ export class BotUpdate {
     const labels = new Map<string, bigint>();
     for (let i = 0; i < groups.length; i++) {
       const g = groups[i];
-      const name = g.communityName?.trim() || `Група ${String(g.telegramChatId)}`;
+      const name =
+        g.communityName?.trim() || `Група ${String(g.telegramChatId)}`;
       labels.set(`#${i + 1} ${name}`.slice(0, 64), g.telegramChatId);
     }
     this.groupPickerLabelsByUser.set(ctx.from.id, labels);
@@ -571,7 +585,9 @@ export class BotUpdate {
       sportNameUa: r.sportKind.nameUa,
       playersNeeded: r.requiredPlayers,
     }));
-    const rowLabels = listItems.map((item) => this.buildFreeSlotButtonLabel(item));
+    const rowLabels = listItems.map((item) =>
+      this.buildFreeSlotButtonLabel(item),
+    );
     this.menuStates.set(this.setupSk(groupChatId, ctx.from.id), {
       t: 'free_slots',
       bookingIds: rows.map((r) => r.id),
@@ -911,7 +927,9 @@ export class BotUpdate {
           if (!comm) {
             return;
           }
-          if (!(await this.ensureParticipantBookingWindowOpen(ctx, chatId, comm))) {
+          if (
+            !(await this.ensureParticipantBookingWindowOpen(ctx, chatId, comm))
+          ) {
             return;
           }
           this.setMenuState(ctx, { t: 'book_sport' });
@@ -937,7 +955,13 @@ export class BotUpdate {
         if (s.sportKindCode !== undefined) {
           const list = await this.resourcesForBookingUi(chatId, admin);
           if (list.length <= 1) {
-            if (!(await this.ensureParticipantBookingWindowOpen(ctx, chatId, comm))) {
+            if (
+              !(await this.ensureParticipantBookingWindowOpen(
+                ctx,
+                chatId,
+                comm,
+              ))
+            ) {
               return;
             }
             this.setMenuState(ctx, { t: 'book_sport' });
@@ -1199,7 +1223,9 @@ export class BotUpdate {
         return;
       }
       if (!admin) {
-        if (!(await this.ensureParticipantBookingWindowOpen(ctx, chatId, comm))) {
+        if (
+          !(await this.ensureParticipantBookingWindowOpen(ctx, chatId, comm))
+        ) {
           return;
         }
       }
@@ -1699,7 +1725,10 @@ export class BotUpdate {
       );
       return;
     }
-    await ctx.reply('Натисніть «Так» або «Ні».', this.lookingForPlayersReplyMarkup());
+    await ctx.reply(
+      'Натисніть «Так» або «Ні».',
+      this.lookingForPlayersReplyMarkup(),
+    );
   }
 
   private async handleBookPlayersPick(
@@ -1758,6 +1787,52 @@ export class BotUpdate {
     await ctx.reply(gridText, this.dayPickReplyMarkup());
   }
 
+  private async sendBookingCancellationAlerts(
+    ctx: Context,
+    notify: {
+      recipientTelegramIds: number[];
+      cancelNoticeText: string;
+      resourceId: string;
+      resourceName: string;
+      timeZone: string;
+      startTime: Date;
+      endTime: Date;
+      sportNameUa: string;
+    },
+  ) {
+    for (const uid of notify.recipientTelegramIds) {
+      try {
+        await ctx.telegram.sendMessage(uid, notify.cancelNoticeText);
+      } catch (e) {
+        this.logger.warn(
+          `booking_cancel_dm failed user=${uid}: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    }
+    const cDay = formatInTimeZone(
+      notify.startTime,
+      notify.timeZone,
+      'dd.MM.yyyy',
+    );
+    const cA = formatInTimeZone(notify.startTime, notify.timeZone, 'HH:mm');
+    const cZ = formatInTimeZone(notify.endTime, notify.timeZone, 'HH:mm');
+    const rawWho = ctx.from?.username?.trim()
+      ? ctx.from.username.trim()
+      : (ctx.from?.first_name?.trim() ?? 'Гравець');
+    const cancelledBy = rawWho.replace(/^@+/, '');
+    const cancelBroadcast =
+      `Бронювання скасовано\n\n` +
+      `Майданчик: «${notify.resourceName}»\n` +
+      `Коли: ${cDay} ${cA}–${cZ} (${notify.timeZone})\n` +
+      `Спорт: ${notify.sportNameUa}\n` +
+      `Скасував: ${cancelledBy}`;
+    await this.broadcastToResourceGroups(
+      ctx,
+      notify.resourceId,
+      cancelBroadcast,
+    );
+  }
+
   private async handleListCancel(
     ctx: Context,
     text: string,
@@ -1781,28 +1856,7 @@ export class BotUpdate {
         telegramChatId: chatId,
         telegramUserId: ctx.from!.id,
       });
-      for (const uid of notify.recipientTelegramIds) {
-        try {
-          await ctx.telegram.sendMessage(uid, notify.cancelNoticeText);
-        } catch (e) {
-          this.logger.warn(
-            `booking_cancel_dm failed user=${uid}: ${e instanceof Error ? e.message : String(e)}`,
-          );
-        }
-      }
-      const cDay = formatInTimeZone(notify.startTime, notify.timeZone, 'dd.MM.yyyy');
-      const cA = formatInTimeZone(notify.startTime, notify.timeZone, 'HH:mm');
-      const cZ = formatInTimeZone(notify.endTime, notify.timeZone, 'HH:mm');
-      const cancelledBy = ctx.from?.username?.trim()
-        ? ctx.from.username.trim()
-        : (ctx.from?.first_name?.trim() ?? 'Гравець');
-      const cancelBroadcast =
-        `Бронювання скасовано\n\n` +
-        `Майданчик: «${notify.resourceName}»\n` +
-        `Коли: ${cDay} ${cA}–${cZ} (${notify.timeZone})\n` +
-        `Спорт: ${notify.sportNameUa}\n` +
-        `Скасував: ${cancelledBy}`;
-      await this.broadcastToResourceGroups(ctx, notify.resourceId, cancelBroadcast);
+      await this.sendBookingCancellationAlerts(ctx, notify);
       await this.replyWithMainMenu(ctx, 'Бронювання скасовано.');
     } catch (e) {
       if (e instanceof BookingNotFoundError) {
@@ -2201,7 +2255,9 @@ export class BotUpdate {
     if (draft.phase === 'start') {
       const hm = text.match(/^(\d{1,2}):00$/);
       if (!hm) {
-        await ctx.reply('Виберіть час відкриття за допомогою кнопок (00:00–22:00).');
+        await ctx.reply(
+          'Виберіть час відкриття за допомогою кнопок (00:00–22:00).',
+        );
         return;
       }
       const hour = Number(hm[1]);
@@ -2316,9 +2372,7 @@ export class BotUpdate {
     this.pendingDmPickerActionByUser.delete(uid);
     const gidStr = gid.toString();
 
-    if (
-      !(await isUserAdminOfGroupChat(ctx.telegram, BigInt(gidStr), uid))
-    ) {
+    if (!(await isUserAdminOfGroupChat(ctx.telegram, BigInt(gidStr), uid))) {
       await ctx.reply('Лише адміністратор може відкривати налаштування.');
       return;
     }
@@ -2486,11 +2540,7 @@ export class BotUpdate {
         if (pendingPickerAction === 'setup') {
           this.pendingDmPickerActionByUser.delete(ctx.from.id);
           if (
-            !(await isUserAdminOfGroupChat(
-              ctx.telegram,
-              picked,
-              ctx.from.id,
-            ))
+            !(await isUserAdminOfGroupChat(ctx.telegram, picked, ctx.from.id))
           ) {
             await ctx.reply('Лише адміністратор може відкривати налаштування.');
             return;
@@ -2513,9 +2563,13 @@ export class BotUpdate {
             });
           } catch (e) {
             this.logger.warn(
-              e instanceof Error ? e.message : 'openSetup after group pick failed',
+              e instanceof Error
+                ? e.message
+                : 'openSetup after group pick failed',
             );
-            await ctx.reply('Не вдалося відкрити налаштування. Спробуйте ще раз.');
+            await ctx.reply(
+              'Не вдалося відкрити налаштування. Спробуйте ще раз.',
+            );
           }
           return;
         }
@@ -2691,16 +2745,33 @@ export class BotUpdate {
     await this.handleMainMenuButtons(ctx, text);
   }
 
+  private setupStep1Opts(
+    draft: SetupDraft,
+  ): { newResource?: true; showDeleteVenue?: true } | undefined {
+    if (draft.creatingNewResource && !draft.setupResourceLabel) {
+      return { newResource: true };
+    }
+    if (draft.resourceId && !draft.creatingNewResource) {
+      return { showDeleteVenue: true };
+    }
+    return undefined;
+  }
+
   private setupStep1ReplyMarkup(
     backToResourcePick = false,
     existingBotName?: string,
-    opts?: { newResource?: boolean },
+    opts?: { newResource?: boolean; showDeleteVenue?: boolean },
   ) {
     const rows: string[][] = [];
     if (!opts?.newResource) {
-      rows.push([
-        existingBotName ? SETUP_KB_KEEP_BOT_NAME : SETUP_KB_USE_CHAT_TITLE,
-      ]);
+      const primary = existingBotName
+        ? SETUP_KB_KEEP_BOT_NAME
+        : SETUP_KB_USE_CHAT_TITLE;
+      if (opts?.showDeleteVenue) {
+        rows.push([primary, SETUP_KB_DELETE_RESOURCE]);
+      } else {
+        rows.push([primary]);
+      }
     }
     if (backToResourcePick) {
       rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
@@ -2711,11 +2782,20 @@ export class BotUpdate {
     return Markup.keyboard(rows).resize().persistent(true);
   }
 
+  private setupResourceDeleteConfirmReplyMarkup() {
+    return Markup.keyboard([
+      [MENU_KB_BACK, SETUP_KB_CONFIRM_DELETE_RESOURCE],
+      [SETUP_KB_CANCEL],
+    ])
+      .resize()
+      .persistent(true);
+  }
+
   private setupVenuesHubReplyMarkup() {
     return Markup.keyboard([
       [SETUP_KB_VENUES, SETUP_KB_GROUP_RULES],
       [SETUP_KB_BOOKING_WINDOW, SETUP_KB_BOOKING_LIMIT],
-      [SETUP_KB_LINK_EXISTING_RESOURCE],
+      [SETUP_KB_ALL_BOOKINGS, SETUP_KB_LINK_EXISTING_RESOURCE],
       [SETUP_KB_CANCEL],
     ])
       .resize()
@@ -2723,7 +2803,50 @@ export class BotUpdate {
   }
 
   private setupHubButtonsHintText(): string {
-    return `«${SETUP_KB_VENUES}» — майданчики, «${SETUP_KB_GROUP_RULES}» — текст правил для нових учасників, «${SETUP_KB_LINK_EXISTING_RESOURCE}» — привʼязати вже існуючий майданчик, «${SETUP_KB_BOOKING_WINDOW}» — коли учасники можуть бронювати, «${SETUP_KB_BOOKING_LIMIT}» — ліміт годин на одного користувача за днями тижня.`;
+    return `«${SETUP_KB_VENUES}» — майданчики, «${SETUP_KB_GROUP_RULES}» — текст правил для нових учасників, «${SETUP_KB_ALL_BOOKINGS}» — перегляд бронювань у групі, «${SETUP_KB_LINK_EXISTING_RESOURCE}» — привʼязати вже існуючий майданчик, «${SETUP_KB_BOOKING_WINDOW}» — коли учасники можуть бронювати, «${SETUP_KB_BOOKING_LIMIT}» — ліміт годин на одного користувача за днями тижня.`;
+  }
+
+  private setupAllBookingsDayReplyMarkup() {
+    return Markup.keyboard([
+      [MENU_DAY_TODAY, MENU_DAY_TOMORROW],
+      [MENU_KB_BACK, MENU_KB_MAIN],
+      [SETUP_KB_CANCEL],
+    ])
+      .resize()
+      .persistent(true);
+  }
+
+  private buildAdminAllBookingButtonLabel(item: {
+    startTime: Date;
+    endTime: Date;
+    timeZone: string;
+    resourceName: string;
+    sportNameUa: string;
+    userName: string;
+  }): string {
+    const day = formatInTimeZone(item.startTime, item.timeZone, 'dd.MM');
+    const a = formatInTimeZone(item.startTime, item.timeZone, 'HH:mm');
+    const z = formatInTimeZone(item.endTime, item.timeZone, 'HH:mm');
+    const sport = item.sportNameUa.trim() || '—';
+    const res = item.resourceName.trim() || '—';
+    const who = item.userName.trim().replace(/^@+/, '') || 'Гравець';
+    const cancelSuffix = ' · Скасувати?';
+    const baseLabel = `${day} ${a}–${z} · ${res} · ${sport} · ${who}`;
+    let label = `${baseLabel}${cancelSuffix}`;
+    if (label.length > 64) {
+      const shortBase = `${day} ${a}–${z} · ${res} · ${sport} · …`;
+      const maxBaseLen = Math.max(0, 64 - cancelSuffix.length);
+      label = `${shortBase.slice(0, maxBaseLen)}${cancelSuffix}`;
+    }
+    return label;
+  }
+
+  private adminAllBookingsReplyMarkup(labels: string[]) {
+    const rows = kbRowsPaired(labels);
+    rows.push([MENU_DAY_TODAY, MENU_DAY_TOMORROW]);
+    rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
+    rows.push([SETUP_KB_CANCEL]);
+    return Markup.keyboard(rows).resize().persistent(true);
   }
 
   private setupHubPromptText(chatTitle: string): string {
@@ -3225,8 +3348,9 @@ export class BotUpdate {
   }
 
   private setupStartHourReplyMarkup() {
-    const labels = Array.from({ length: 23 }, (_, h) =>
-      `${String(h).padStart(2, '0')}:00`,
+    const labels = Array.from(
+      { length: 23 },
+      (_, h) => `${String(h).padStart(2, '0')}:00`,
     );
     const rows = kbRowsPaired(labels);
     rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
@@ -3267,7 +3391,8 @@ export class BotUpdate {
     resourceId: string,
     text: string,
   ): Promise<void> {
-    const chatIds = await this.resources.listTelegramChatIdsForResource(resourceId);
+    const chatIds =
+      await this.resources.listTelegramChatIdsForResource(resourceId);
     for (const gid of chatIds) {
       try {
         await ctx.telegram.sendMessage(gid.toString(), text);
@@ -3382,7 +3507,11 @@ export class BotUpdate {
           targetGroupChatId,
           'Виберіть день тижня (Пн — понеділок). Зміни зберігаються одразу.',
         );
-        await this.sendSetupDm(ctx, 'Виберіть день тижня:', this.whPickDayReplyMarkup());
+        await this.sendSetupDm(
+          ctx,
+          'Виберіть день тижня:',
+          this.whPickDayReplyMarkup(),
+        );
         return;
       }
       if (offered) {
@@ -3432,12 +3561,12 @@ export class BotUpdate {
       this.resetMenuStateForGroup(targetGroupChatId, ctx.from!.id);
       const uid = ctx.from!.id;
       // Спочатку зняти reply-клавіатуру — інакше деякі клієнти не підміняють велике меню /setup.
-      await ctx.telegram.sendMessage(
-        uid,
+      await ctx.telegram.sendMessage(uid, '\u2060', Markup.removeKeyboard());
+      await this.replyWithMainMenuInDmForGroup(
+        ctx,
+        targetGroupChatId,
         '\u2060',
-        Markup.removeKeyboard(),
       );
-      await this.replyWithMainMenuInDmForGroup(ctx, targetGroupChatId, '\u2060');
     };
 
     if (text.trim() === SETUP_KB_CANCEL) {
@@ -3508,6 +3637,166 @@ export class BotUpdate {
           return;
         }
         if (
+          draft.venuesSubstep === 'all_bookings_pick_day' ||
+          draft.venuesSubstep === 'all_bookings_list'
+        ) {
+          if (text === MENU_KB_MAIN || text === MENU_KB_BACK) {
+            draft.venuesSubstep = 'hub';
+            delete draft.allBookingsDayOffsetDraft;
+            delete draft.allBookingsRowLabelsDraft;
+            delete draft.allBookingsBookingIdsDraft;
+            this.setupDrafts.set(sk, draft);
+            await this.sendSetupDm(
+              ctx,
+              this.setupHubPromptText(chatTitle),
+              this.setupVenuesHubReplyMarkup(),
+            );
+            return;
+          }
+          let dayOffset: 0 | 1 | undefined;
+          if (text === MENU_DAY_TODAY) {
+            dayOffset = 0;
+          } else if (text === MENU_DAY_TOMORROW) {
+            dayOffset = 1;
+          }
+          if (dayOffset !== undefined) {
+            const rows = await this.booking.listAllBookingsForChatDay({
+              telegramChatId: targetGroupChatId,
+              dayOffset,
+            });
+            if (rows.length === 0) {
+              draft.venuesSubstep = 'all_bookings_pick_day';
+              draft.allBookingsDayOffsetDraft = dayOffset;
+              draft.allBookingsRowLabelsDraft = [];
+              draft.allBookingsBookingIdsDraft = [];
+              this.setupDrafts.set(sk, draft);
+              await this.sendSetupDm(
+                ctx,
+                dayOffset === 0
+                  ? 'На сьогодні бронювань немає. Оберіть інший день.'
+                  : 'На завтра бронювань немає. Оберіть інший день.',
+                this.setupAllBookingsDayReplyMarkup(),
+              );
+              return;
+            }
+            const items = rows.map((r) => ({
+              startTime: r.startTime,
+              endTime: r.endTime,
+              timeZone: r.resource.timeZone,
+              resourceName: r.resource.name,
+              sportNameUa: r.sportKind.nameUa,
+              userName: (r.userName?.trim() || 'Гравець').replace(/^@+/, ''),
+            }));
+            const rowLabels = items.map((it) =>
+              this.buildAdminAllBookingButtonLabel(it),
+            );
+            const bookingIds = rows.map((r) => r.id);
+            draft.venuesSubstep = 'all_bookings_list';
+            draft.allBookingsDayOffsetDraft = dayOffset;
+            draft.allBookingsRowLabelsDraft = rowLabels;
+            draft.allBookingsBookingIdsDraft = bookingIds;
+            this.setupDrafts.set(sk, draft);
+            await this.sendSetupDm(
+              ctx,
+              dayOffset === 0
+                ? 'Усі бронювання на сьогодні:'
+                : 'Усі бронювання на завтра:',
+              this.adminAllBookingsReplyMarkup(rowLabels),
+            );
+            return;
+          }
+          if (draft.venuesSubstep === 'all_bookings_list') {
+            const labels = draft.allBookingsRowLabelsDraft;
+            const ids = draft.allBookingsBookingIdsDraft;
+            if (labels?.length && ids?.length === labels.length) {
+              const bIdx = labels.indexOf(text);
+              if (bIdx !== -1 && ids[bIdx]) {
+                if (
+                  !(await this.isAdminInContextGroup(ctx, targetGroupChatId))
+                ) {
+                  await this.sendSetupDm(
+                    ctx,
+                    'Недостатньо прав для скасування бронювання.',
+                  );
+                  return;
+                }
+                const bookingId = ids[bIdx];
+                const dayKeep = draft.allBookingsDayOffsetDraft ?? 0;
+                try {
+                  const notify = await this.booking.cancelBooking({
+                    bookingId,
+                    telegramChatId: targetGroupChatId,
+                    telegramUserId: ctx.from.id,
+                    asGroupAdmin: true,
+                  });
+                  await this.sendBookingCancellationAlerts(ctx, notify);
+                  const rowsAfter =
+                    await this.booking.listAllBookingsForChatDay({
+                      telegramChatId: targetGroupChatId,
+                      dayOffset: dayKeep,
+                    });
+                  if (rowsAfter.length === 0) {
+                    draft.venuesSubstep = 'all_bookings_pick_day';
+                    draft.allBookingsDayOffsetDraft = dayKeep;
+                    delete draft.allBookingsRowLabelsDraft;
+                    delete draft.allBookingsBookingIdsDraft;
+                    this.setupDrafts.set(sk, draft);
+                    await this.sendSetupDm(
+                      ctx,
+                      'Бронювання скасовано. На цей день більше немає активних бронювань. Оберіть день:',
+                      this.setupAllBookingsDayReplyMarkup(),
+                    );
+                    return;
+                  }
+                  const itemsAfter = rowsAfter.map((r) => ({
+                    startTime: r.startTime,
+                    endTime: r.endTime,
+                    timeZone: r.resource.timeZone,
+                    resourceName: r.resource.name,
+                    sportNameUa: r.sportKind.nameUa,
+                    userName: (r.userName?.trim() || 'Гравець').replace(
+                      /^@+/,
+                      '',
+                    ),
+                  }));
+                  const rowLabelsAfter = itemsAfter.map((it) =>
+                    this.buildAdminAllBookingButtonLabel(it),
+                  );
+                  draft.venuesSubstep = 'all_bookings_list';
+                  draft.allBookingsDayOffsetDraft = dayKeep;
+                  draft.allBookingsRowLabelsDraft = rowLabelsAfter;
+                  draft.allBookingsBookingIdsDraft = rowsAfter.map((r) => r.id);
+                  this.setupDrafts.set(sk, draft);
+                  await this.sendSetupDm(
+                    ctx,
+                    dayKeep === 0
+                      ? 'Бронювання скасовано. Усі бронювання на сьогодні:'
+                      : 'Бронювання скасовано. Усі бронювання на завтра:',
+                    this.adminAllBookingsReplyMarkup(rowLabelsAfter),
+                  );
+                  return;
+                } catch (e) {
+                  if (e instanceof BookingNotFoundError) {
+                    await this.sendSetupDm(
+                      ctx,
+                      'Запис не знайдено або вже скасовано. Оберіть день «Сьогодні» або «Завтра», щоб оновити список.',
+                      this.setupAllBookingsDayReplyMarkup(),
+                    );
+                    return;
+                  }
+                  throw e;
+                }
+              }
+            }
+          }
+          await this.sendSetupDm(
+            ctx,
+            'Оберіть день: «Сьогодні» або «Завтра».',
+            this.setupAllBookingsDayReplyMarkup(),
+          );
+          return;
+        }
+        if (
           await this.handleSetupBookingLimitFlow(
             ctx,
             text,
@@ -3562,10 +3851,7 @@ export class BotUpdate {
               currentRules
                 ? `Поточні правила групи:\n\n${currentRules}\n\nНадішліть новий текст одним повідомленням, щоб замінити правила.`
                 : 'Правила групи ще не задані.\n\nНадішліть текст правил одним повідомленням, щоб створити їх.',
-              Markup.keyboard([
-                [MENU_KB_BACK, MENU_KB_MAIN],
-                [SETUP_KB_CANCEL],
-              ])
+              Markup.keyboard([[MENU_KB_BACK, MENU_KB_MAIN], [SETUP_KB_CANCEL]])
                 .resize()
                 .persistent(true),
             );
@@ -3622,6 +3908,19 @@ export class BotUpdate {
             );
             return;
           }
+          if (text === SETUP_KB_ALL_BOOKINGS) {
+            draft.venuesSubstep = 'all_bookings_pick_day';
+            delete draft.allBookingsDayOffsetDraft;
+            delete draft.allBookingsRowLabelsDraft;
+            delete draft.allBookingsBookingIdsDraft;
+            this.setupDrafts.set(sk, draft);
+            await this.sendSetupDm(
+              ctx,
+              'Усі бронювання. Оберіть день:',
+              this.setupAllBookingsDayReplyMarkup(),
+            );
+            return;
+          }
           if (text === SETUP_KB_LINK_EXISTING_RESOURCE) {
             const raw = await this.resources.listLinkableForChatAdmin({
               telegramChatId: targetGroupChatId,
@@ -3636,11 +3935,7 @@ export class BotUpdate {
                   continue;
                 }
                 if (
-                  await isUserAdminOfGroupChat(
-                    ctx.telegram,
-                    gid,
-                    ctx.from.id,
-                  )
+                  await isUserAdminOfGroupChat(ctx.telegram, gid, ctx.from.id)
                 ) {
                   ok = true;
                   break;
@@ -3700,11 +3995,7 @@ export class BotUpdate {
                 continue;
               }
               if (
-                await isUserAdminOfGroupChat(
-                  ctx.telegram,
-                  gid,
-                  ctx.from.id,
-                )
+                await isUserAdminOfGroupChat(ctx.telegram, gid, ctx.from.id)
               ) {
                 ok = true;
                 break;
@@ -3831,11 +4122,133 @@ export class BotUpdate {
               multiFlow: draft.multiResourceFlow,
               stepMax: this.setupStepMax(draft),
             }),
-          this.setupStep1ReplyMarkup(true, r.name),
+          this.setupStep1ReplyMarkup(true, r.name, { showDeleteVenue: true }),
         );
         return;
       }
       case 1: {
+        if (draft.setupResourceDeleteConfirm) {
+          if (text === MENU_KB_BACK) {
+            delete draft.setupResourceDeleteConfirm;
+            this.setupDrafts.set(sk, draft);
+            await this.sendSetupDm(
+              ctx,
+              `Вибраний майданчик «${draft.setupResourceLabel ?? '…'}».\n\n` +
+                this.setupStep1PromptText(chatTitle, {
+                  existingResourceName: draft.setupResourceLabel,
+                  multiFlow: !!draft.multiResourceFlow,
+                  stepMax: this.setupStepMax(draft),
+                }),
+              this.setupStep1ReplyMarkup(
+                !!(draft.multiResourceFlow || draft.creatingNewResource),
+                draft.setupResourceLabel,
+                this.setupStep1Opts(draft),
+              ),
+            );
+            return;
+          }
+          if (text === SETUP_KB_CONFIRM_DELETE_RESOURCE) {
+            if (!draft.resourceId) {
+              delete draft.setupResourceDeleteConfirm;
+              this.setupDrafts.set(sk, draft);
+              return;
+            }
+            if (!(await this.isAdminInContextGroup(ctx, targetGroupChatId))) {
+              await this.sendSetupDm(
+                ctx,
+                'Недостатньо прав для видалення майданчика.',
+              );
+              return;
+            }
+            try {
+              const result =
+                await this.resources.deleteResourceForCommunityFromSetup({
+                  telegramChatId: targetGroupChatId,
+                  resourceId: draft.resourceId,
+                });
+              draft.step = 0;
+              delete draft.resourceId;
+              delete draft.multiResourceFlow;
+              delete draft.creatingNewResource;
+              delete draft.setupResourceLabel;
+              delete draft.setupResourceAddressLabel;
+              delete draft.setupResourceVisibility;
+              delete draft.name;
+              delete draft.setupResourceDeleteConfirm;
+              draft.venuesSubstep = 'list';
+              this.setupDrafts.set(sk, draft);
+              const listBack =
+                await this.resources.listForChat(targetGroupChatId);
+              const doneMsg =
+                result.mode === 'unlinked'
+                  ? `Майданчик «${result.resourceName}» відвʼязано від цієї групи. Усі бронювання та ліміти для нього тут видалено. Для інших груп, де він ще привʼязаний, нічого не змінилося.`
+                  : `Майданчик «${result.resourceName}» повністю видалено (усі бронювання, привʼязки та години роботи).`;
+              await this.sendSetupDm(
+                ctx,
+                `${doneMsg}\n\nВиберіть майданчик або додайте новий.`,
+                this.setupPickResourceReplyMarkup(listBack),
+              );
+            } catch (e) {
+              const msg =
+                e instanceof Error &&
+                e.message === 'RESOURCE_NOT_LINKED_TO_CHAT'
+                  ? 'Майданчик уже не привʼязано до цієї групи або його видалено.'
+                  : 'Не вдалося видалити майданчик. Спробуйте пізніше.';
+              if (
+                !(
+                  e instanceof Error &&
+                  e.message === 'RESOURCE_NOT_LINKED_TO_CHAT'
+                )
+              ) {
+                this.logger.error(e instanceof Error ? e.message : e);
+              }
+              delete draft.setupResourceDeleteConfirm;
+              this.setupDrafts.set(sk, draft);
+              await this.sendSetupDm(
+                ctx,
+                msg,
+                this.setupStep1ReplyMarkup(
+                  !!(draft.multiResourceFlow || draft.creatingNewResource),
+                  draft.setupResourceLabel,
+                  this.setupStep1Opts(draft),
+                ),
+              );
+            }
+            return;
+          }
+          await this.sendSetupDm(
+            ctx,
+            'Натисніть «Підтвердити видалення» або «Назад».',
+            this.setupResourceDeleteConfirmReplyMarkup(),
+          );
+          return;
+        }
+
+        if (
+          text === SETUP_KB_DELETE_RESOURCE &&
+          draft.resourceId &&
+          !draft.creatingNewResource
+        ) {
+          if (!(await this.isAdminInContextGroup(ctx, targetGroupChatId))) {
+            await this.sendSetupDm(
+              ctx,
+              'Недостатньо прав для видалення майданчика.',
+            );
+            return;
+          }
+          draft.setupResourceDeleteConfirm = true;
+          this.setupDrafts.set(sk, draft);
+          await this.sendSetupDm(
+            ctx,
+            `Видалити майданчик «${draft.setupResourceLabel ?? ''}»?\n\n` +
+              `Усі бронювання в цій групі для цього майданчика буде видалено з бази без окремих сповіщень у чатах.\n\n` +
+              `Якщо майданчик привʼязаний ще до інших груп — він залишиться там; з вашої групи зніметься лише привʼязка та локальні броні й ліміти.\n` +
+              `Якщо він лише у вашій групі — запис майданчика повністю зникне (розклад по днях теж).`,
+            this.setupResourceDeleteConfirmReplyMarkup(),
+          );
+          return;
+        }
+
         if (
           text === MENU_KB_BACK &&
           (draft.multiResourceFlow || draft.creatingNewResource)
@@ -3848,6 +4261,7 @@ export class BotUpdate {
           delete draft.setupResourceAddressLabel;
           delete draft.setupResourceVisibility;
           delete draft.name;
+          delete draft.setupResourceDeleteConfirm;
           draft.venuesSubstep = 'list';
           this.setupDrafts.set(sk, draft);
           const listBack = await this.resources.listForChat(targetGroupChatId);
@@ -3950,9 +4364,7 @@ export class BotUpdate {
             this.setupStep1ReplyMarkup(
               !!(draft.multiResourceFlow || draft.creatingNewResource),
               draft.setupResourceLabel,
-              draft.creatingNewResource && !draft.setupResourceLabel
-                ? { newResource: true }
-                : undefined,
+              this.setupStep1Opts(draft),
             ),
           );
           return;
@@ -4024,8 +4436,7 @@ export class BotUpdate {
         // Тимчасовий однаковий графік для БД; далі адмін налаштовує кожен день окремо.
         draft.slotStart = 8;
         draft.slotEnd = 21;
-        const isEditExisting =
-          !!draft.resourceId && !draft.creatingNewResource;
+        const isEditExisting = !!draft.resourceId && !draft.creatingNewResource;
         if (isEditExisting) {
           draft.postTzVisibilityOnly = true;
           draft.step = 6;
@@ -4073,10 +4484,7 @@ export class BotUpdate {
         }
         const hour = Number(hm[1]);
         if (!Number.isInteger(hour) || hour < 0 || hour > 22) {
-          await this.sendSetupDm(
-            ctx,
-            'Оберіть час роботи з 00:00 до 22:00.',
-          );
+          await this.sendSetupDm(ctx, 'Оберіть час роботи з 00:00 до 22:00.');
           return;
         }
         draft.slotStart = hour;
@@ -4193,13 +4601,9 @@ export class BotUpdate {
           }
           delete draft.postTzVisibilityOnly;
           this.setupDrafts.set(sk, draft);
-          await this.persistSetupDraft(
-            ctx,
-            draft,
-            vis,
-            targetGroupChatId,
-            { startPerDayImmediately: true },
-          );
+          await this.persistSetupDraft(ctx, draft, vis, targetGroupChatId, {
+            startPerDayImmediately: true,
+          });
           return;
         }
         if (text === MENU_KB_BACK) {
@@ -4264,9 +4668,7 @@ export class BotUpdate {
     const cbData = `gr:${targetUserId}:${groupStr}`;
     const lastExtra = {
       reply_markup: {
-        inline_keyboard: [
-          [{ text: RULES_ACCEPT_KB, callback_data: cbData }],
-        ],
+        inline_keyboard: [[{ text: RULES_ACCEPT_KB, callback_data: cbData }]],
       },
     };
 
@@ -4438,7 +4840,7 @@ export class BotUpdate {
         ctx.message &&
         'text' in ctx.message &&
         typeof ctx.message.text === 'string'
-          ? ctx.message.text.trim().split(/\s+/, 2)[1] ?? ''
+          ? (ctx.message.text.trim().split(/\s+/, 2)[1] ?? '')
           : '';
       if (startPayload.startsWith(START_RULES_PREFIX)) {
         const gidStr = startPayload.slice(START_RULES_PREFIX.length);
@@ -4488,10 +4890,7 @@ export class BotUpdate {
       if (gid == null) {
         return;
       }
-      await ctx.reply(
-        'Головне меню:',
-        await this.mainMenuReplyMarkup(ctx),
-      );
+      await ctx.reply('Головне меню:', await this.mainMenuReplyMarkup(ctx));
       return;
     }
 
@@ -4599,7 +4998,11 @@ export class BotUpdate {
             stepMax: this.setupStepMax(draftOne),
           },
         )}`,
-        this.setupStep1ReplyMarkup(false, setupResourceLabel),
+        this.setupStep1ReplyMarkup(
+          false,
+          setupResourceLabel,
+          resourceId ? { showDeleteVenue: true } : undefined,
+        ),
       );
     } catch (e) {
       this.setupDrafts.delete(sk);
