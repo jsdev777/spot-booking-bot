@@ -378,11 +378,7 @@ export class BotUpdate {
     return Markup.keyboard(kbRowsPaired(keys)).resize().persistent(true);
   }
 
-  private async groupEntryReplyMarkupForChatUser(
-    telegram: Context['telegram'],
-    chatId: bigint,
-    userId: number,
-  ) {
+  private groupEntryReplyMarkupForChatUser() {
     const rows: string[][] = [[MENU_KB_CHAT_BOT, MENU_KB_FREE_SLOTS]];
     return Markup.keyboard(rows).resize().persistent(true);
   }
@@ -392,11 +388,7 @@ export class BotUpdate {
       return this.mainMenuReplyMarkupForDmUser(ctx.telegram, ctx.from.id);
     }
     if (isGroupChat(ctx) && ctx.from) {
-      return this.groupEntryReplyMarkupForChatUser(
-        ctx.telegram,
-        BigInt(ctx.chat!.id),
-        ctx.from.id,
-      );
+      return this.groupEntryReplyMarkupForChatUser();
     }
     return Markup.keyboard([[MENU_KB_CHAT_BOT]])
       .resize()
@@ -4228,11 +4220,7 @@ export class BotUpdate {
           ? 'Ласкаво просимо!\n\nНатисніть «Чат Бот», щоб працювати з меню в особистих повідомленнях.'
           : 'Ласкаво просимо!\n\nМайданчик ще не налаштований. Адміністратору: команда /setup.';
         try {
-          const kb = await this.groupEntryReplyMarkupForChatUser(
-            ctx.telegram,
-            chatId,
-            u.id,
-          );
+          const kb = this.groupEntryReplyMarkupForChatUser();
           await ctx.telegram.sendMessage(chat.id, text, kb);
         } catch (e) {
           this.logger.warn(
