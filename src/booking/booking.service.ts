@@ -74,6 +74,12 @@ export type BookingStartSlot = { hour: number; minute: number };
 export type BookingCancelNotification = {
   recipientTelegramIds: number[];
   cancelNoticeText: string;
+  resourceId: string;
+  resourceName: string;
+  timeZone: string;
+  startTime: Date;
+  endTime: Date;
+  sportNameUa: string;
 };
 
 export type TelegramFrom = {
@@ -126,17 +132,18 @@ export class BookingService {
   ) {}
 
   /**
-   * The `community_user_booking_limits` limit for the day of the week and the calendar start date of the booking
-   * in the venue's time zone (`limitTimeZone`). `null` means no limit.
+   * The `community_resource_user_booking_limits` limit for the day of the week and the calendar start date
+   * of the booking in the venue's time zone (`limitTimeZone`). `null` means no limit.
    */
-  private async communityUserBookingLimitState(params: {
-    communityId: string;
+  private async resourceUserBookingLimitState(params: {
+    communityResourceId: string;
+    resourceId: string;
     telegramUserId: number;
     startTimeUtc: Date;
     limitTimeZone: string;
   }): Promise<{ cap: number; used: number } | null> {
-    const limits = await this.prisma.communityUserBookingLimit.findMany({
-      where: { communityId: params.communityId },
+    const limits = await this.prisma.communityResourceUserBookingLimit.findMany({
+      where: { communityResourceId: params.communityResourceId },
     });
     const isoWeekday = Number(
       formatInTimeZone(params.startTimeUtc, params.limitTimeZone, 'i'),
@@ -154,7 +161,8 @@ export class BookingService {
       where: {
         status: { in: DAILY_LIMIT_BOOKING_STATUSES },
         userId: BigInt(params.telegramUserId),
-        resource: { communityId: params.communityId },
+        communityResourceId: params.communityResourceId,
+        resourceId: params.resourceId,
       },
       select: { startTime: true, endTime: true },
     });
@@ -393,8 +401,9 @@ export class BookingService {
       params.telegramUserId != null &&
       out.length > 0
     ) {
-      const lim = await this.communityUserBookingLimitState({
-        communityId: ctx.res.community.id,
+      const lim = await this.resourceUserBookingLimitState({
+        communityResourceId: ctx.res.communityResourceId,
+        resourceId: ctx.res.id,
         telegramUserId: params.telegramUserId,
         startTimeUtc: t0,
         limitTimeZone: timeZone,
@@ -477,8 +486,9 @@ export class BookingService {
     }
 
     if (!params.telegramGroupAdmin) {
-      const lim = await this.communityUserBookingLimitState({
-        communityId: res.community.id,
+      const lim = await this.resourceUserBookingLimitState({
+        communityResourceId: res.communityResourceId,
+        resourceId: res.id,
         telegramUserId: params.from.id,
         startTimeUtc: startTime,
         limitTimeZone: timeZone,
@@ -512,6 +522,7 @@ export class BookingService {
         }
         return tx.booking.create({
           data: {
+            communityResourceId: res.communityResourceId,
             resourceId: params.resourceId,
             sportKindCode: params.sportKindCode ?? SportKindCode.TENNIS,
             userId: BigInt(params.from.id),
@@ -538,7 +549,13 @@ export class BookingService {
           startLocal: formatInTimeZone(startTime, timeZone, 'yyyy-MM-dd HH:mm'),
         }),
       );
-      return { startTime, endTime, resourceName: res.name, timeZone };
+    return {
+      resourceId: res.id,
+      startTime,
+      endTime,
+      resourceName: res.name,
+      timeZone,
+    };
     } catch (e) {
       if (e instanceof SlotTakenError) {
         throw e;
@@ -558,11 +575,14 @@ export class BookingService {
         status: { in: OCCUPIED_BOOKING_STATUSES },
         userId: BigInt(params.telegramUserId),
         resource: {
-          community: { telegramChatId: params.telegramChatId },
+          communityResources: {
+            some: { community: { telegramChatId: params.telegramChatId } },
+          },
         },
       },
       include: {
-        resource: { include: { community: true } },
+        resource: true,
+        communityResource: { include: { community: true } },
         sportKind: true,
         lookingParticipants: true,
       },
@@ -612,7 +632,16 @@ export class BookingService {
       }),
     );
 
-    return { recipientTelegramIds, cancelNoticeText };
+    return {
+      recipientTelegramIds,
+      cancelNoticeText,
+      resourceId: booking.resource.id,
+      resourceName: booking.resource.name,
+      timeZone: tz,
+      startTime: booking.startTime,
+      endTime: booking.endTime,
+      sportNameUa: String(sport),
+    };
   }
 
   /**
@@ -627,10 +656,12 @@ export class BookingService {
         status: { in: OCCUPIED_BOOKING_STATUSES },
         userId: BigInt(params.telegramUserId),
         resource: {
-          community: { telegramChatId: params.telegramChatId },
+          communityResources: {
+            some: { community: { telegramChatId: params.telegramChatId } },
+          },
         },
       },
-      include: { resource: { include: { community: true } } },
+      include: { resource: true, communityResource: { include: { community: true } } },
       orderBy: { startTime: 'asc' },
     });
   }
@@ -645,7 +676,9 @@ export class BookingService {
         requiredPlayers: { gt: 0 },
         startTime: { gt: now },
         resource: {
-          community: { telegramChatId: params.telegramChatId },
+          communityResources: {
+            some: { community: { telegramChatId: params.telegramChatId } },
+          },
         },
       },
       include: { resource: true, sportKind: true },
@@ -682,7 +715,9 @@ export class BookingService {
           isLookingForPlayers: true,
           requiredPlayers: { gt: 0 },
           resource: {
-            community: { telegramChatId: params.telegramChatId },
+            communityResources: {
+              some: { community: { telegramChatId: params.telegramChatId } },
+            },
           },
         },
         select: { id: true, requiredPlayers: true },

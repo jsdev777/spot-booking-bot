@@ -105,6 +105,7 @@ const SETUP_KB_BOOKING_LIMIT = 'Ліміт на бронювання';
 const LIMIT_KB_UNLIMITED = 'Без обмежень';
 const BW_KB_END_MIDNIGHT = '24:00 — кінець дня';
 const SETUP_KB_NEW_RESOURCE = '➕ Додати майданчик';
+const SETUP_KB_LINK_EXISTING_RESOURCE = '🔗 Привʼязати існуючий';
 const SETUP_KB_RESOURCE_ACTIVE = 'Активна';
 const SETUP_KB_RESOURCE_INACTIVE = 'Не активна';
 
@@ -149,6 +150,7 @@ interface SetupDraft {
   venuesSubstep?:
     | 'hub'
     | 'list'
+    | 'link_pick'
     | 'bw_tz'
     | 'bw_start'
     | 'bw_end'
@@ -1532,7 +1534,7 @@ export class BotUpdate {
     }
     const admin = await this.isAdminInContextGroup(ctx, chatId);
     try {
-      const { startTime, endTime, resourceName, timeZone } =
+      const { resourceId, startTime, endTime, resourceName, timeZone } =
         await this.booking.createBooking({
           resourceId: flow.resourceId,
           telegramChatId: chatId,
@@ -1558,6 +1560,21 @@ export class BotUpdate {
         players.isLookingForPlayers && players.requiredPlayers > 0
           ? ` Шукаю партнерів: потрібно ще ${players.requiredPlayers} чол.`
           : '';
+      const day = formatInTimeZone(startTime, timeZone, 'dd.MM.yyyy');
+      const whoRaw = ctx.from?.username?.trim()
+        ? ctx.from.username.trim()
+        : (ctx.from?.first_name?.trim() ?? 'Гравець');
+      const sportLabel = this.bookingSportLabel(flow.sportKindCode);
+      const groupBroadcast =
+        `Нове бронювання\n\n` +
+        `Майданчик: «${resourceName}»\n` +
+        `Коли: ${day} ${a}–${z} (${timeZone})\n` +
+        `Хто: ${whoRaw}\n` +
+        `Спорт: ${sportLabel}` +
+        (players.isLookingForPlayers && players.requiredPlayers > 0
+          ? `\nПошук партнерів: потрібно ще ${players.requiredPlayers} чол.`
+          : '');
+      await this.broadcastToResourceGroups(ctx, resourceId, groupBroadcast);
       await this.replyWithMainMenu(
         ctx,
         `Бронювання додано: «${resourceName}», ${a}–${z}.${tail}`,
@@ -1758,6 +1775,19 @@ export class BotUpdate {
           );
         }
       }
+      const cDay = formatInTimeZone(notify.startTime, notify.timeZone, 'dd.MM.yyyy');
+      const cA = formatInTimeZone(notify.startTime, notify.timeZone, 'HH:mm');
+      const cZ = formatInTimeZone(notify.endTime, notify.timeZone, 'HH:mm');
+      const cancelledBy = ctx.from?.username?.trim()
+        ? ctx.from.username.trim()
+        : (ctx.from?.first_name?.trim() ?? 'Гравець');
+      const cancelBroadcast =
+        `Бронювання скасовано\n\n` +
+        `Майданчик: «${notify.resourceName}»\n` +
+        `Коли: ${cDay} ${cA}–${cZ} (${notify.timeZone})\n` +
+        `Спорт: ${notify.sportNameUa}\n` +
+        `Скасував: ${cancelledBy}`;
+      await this.broadcastToResourceGroups(ctx, notify.resourceId, cancelBroadcast);
       await this.replyWithMainMenu(ctx, 'Бронювання скасовано.');
     } catch (e) {
       if (e instanceof BookingNotFoundError) {
@@ -2669,14 +2699,15 @@ export class BotUpdate {
   private setupVenuesHubReplyMarkup() {
     return Markup.keyboard([
       [SETUP_KB_VENUES, SETUP_KB_BOOKING_WINDOW],
-      [SETUP_KB_BOOKING_LIMIT, SETUP_KB_CANCEL],
+      [SETUP_KB_BOOKING_LIMIT, SETUP_KB_LINK_EXISTING_RESOURCE],
+      [SETUP_KB_CANCEL],
     ])
       .resize()
       .persistent(true);
   }
 
   private setupHubButtonsHintText(): string {
-    return `«${SETUP_KB_VENUES}» — майданчики, «${SETUP_KB_BOOKING_WINDOW}» — коли учасники можуть бронювати, «${SETUP_KB_BOOKING_LIMIT}» — ліміт годин на одного користувача за днями тижня.`;
+    return `«${SETUP_KB_VENUES}» — майданчики, «${SETUP_KB_LINK_EXISTING_RESOURCE}» — привʼязати вже існуючий майданчик, «${SETUP_KB_BOOKING_WINDOW}» — коли учасники можуть бронювати, «${SETUP_KB_BOOKING_LIMIT}» — ліміт годин на одного користувача за днями тижня.`;
   }
 
   private setupHubPromptText(chatTitle: string): string {
@@ -2782,7 +2813,7 @@ export class BotUpdate {
       await this.sendSetupDm(
         ctx,
         `${WH_ISO_LABELS[wi]}: зараз ${cur}.\n\n` +
-          `Максимальна кількість годин бронювання одним обліковим записом у цей день тижня (сума по всіх майданчиках групи). Під час перевірки враховується день тижня та календарна дата початку бронювання у часовому поясі того майданчика, на якому здійснюється бронювання.\n\nВиберіть ліміт:`,
+          `Максимальна кількість годин бронювання одним обліковим записом у цей день тижня для кожного майданчика окремо. Під час перевірки враховується день тижня та календарна дата початку бронювання у часовому поясі того майданчика, на якому здійснюється бронювання.\n\nВиберіть ліміт:`,
         this.setupLimitHoursReplyMarkup(),
       );
       return true;
@@ -3078,6 +3109,23 @@ export class BotUpdate {
     return Markup.keyboard(rows).resize().persistent(true);
   }
 
+  private setupLinkExistingResourceReplyMarkup(
+    list: {
+      id: string;
+      name: string;
+      address?: string | null;
+      visibility: ResourceVisibility;
+    }[],
+  ) {
+    const labels = list.map((r, i) =>
+      this.resourcePickButtonLabel(r, i, { markInactive: true }),
+    );
+    const rows = kbRowsPaired(labels);
+    rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
+    rows.push([SETUP_KB_CANCEL]);
+    return Markup.keyboard(rows).resize().persistent(true);
+  }
+
   /** Текст шага 1: при уже существующей площадке показываем имя из БД, не название чата. */
   private setupStep1PromptText(
     chatTitle: string,
@@ -3196,6 +3244,30 @@ export class BotUpdate {
       const label = (tz.split('/').pop() ?? tz).slice(0, 64);
       return label === text;
     });
+  }
+
+  private async broadcastToResourceGroups(
+    ctx: Context,
+    resourceId: string,
+    text: string,
+  ): Promise<void> {
+    const chatIds = await this.resources.listTelegramChatIdsForResource(resourceId);
+    for (const gid of chatIds) {
+      try {
+        await ctx.telegram.sendMessage(gid.toString(), text);
+      } catch (e) {
+        this.logger.warn(
+          `resource_group_broadcast failed chat=${gid.toString()}: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    }
+  }
+
+  private bookingSportLabel(kindCode?: SportKindCode): string {
+    if (kindCode == null) {
+      return SPORT_LABEL[SportKindCode.TENNIS];
+    }
+    return SPORT_LABEL[kindCode] ?? String(kindCode);
   }
 
   private whDayStatusLine(
@@ -3372,6 +3444,12 @@ export class BotUpdate {
         }
 
         const list = await this.resources.listForChat(targetGroupChatId);
+        let linkable: {
+          id: string;
+          name: string;
+          address?: string | null;
+          visibility: ResourceVisibility;
+        }[] = [];
         const venuesSub = draft.venuesSubstep ?? 'list';
 
         if (venuesSub === 'hub') {
@@ -3429,14 +3507,149 @@ export class BotUpdate {
             await this.sendSetupDm(
               ctx,
               `Ліміт на бронювання\n\n` +
-                `Скільки годин загалом один користувач може забронювати протягом календарного дня для кожного дня тижня (усі майданчики групи разом). День тижня та дата — за часовим поясом майданчика, на який здійснюється бронювання; одне бронювання не може перевищувати ліміт на цей день.\n\n` +
+                `Скільки годин один користувач може забронювати протягом календарного дня для кожного дня тижня (окремо для кожного майданчика). День тижня та дата — за часовим поясом майданчика, на який здійснюється бронювання; одне бронювання не може перевищувати ліміт на цей день.\n\n` +
                 `${this.formatUserBookingLimitsSummary(limits)}\n\n` +
                 `Виберіть день тижня:`,
               this.setupLimitWeekdayReplyMarkup(),
             );
             return;
           }
+          if (text === SETUP_KB_LINK_EXISTING_RESOURCE) {
+            const raw = await this.resources.listLinkableForChatAdmin({
+              telegramChatId: targetGroupChatId,
+              adminTelegramUserId: ctx.from.id,
+            });
+            const allowed: typeof raw = [];
+            for (const row of raw) {
+              let ok = false;
+              for (const rel of row.communityResources) {
+                const gid = rel.community.telegramChatId;
+                if (gid === targetGroupChatId) {
+                  continue;
+                }
+                if (
+                  await isUserAdminOfGroupChat(
+                    ctx.telegram,
+                    gid,
+                    ctx.from.id,
+                  )
+                ) {
+                  ok = true;
+                  break;
+                }
+              }
+              if (ok) {
+                allowed.push(row);
+              }
+            }
+            linkable = allowed.map((r) => ({
+              id: r.id,
+              name: r.name,
+              address: r.address,
+              visibility: r.visibility,
+            }));
+            if (linkable.length === 0) {
+              await this.sendSetupDm(
+                ctx,
+                `Немає доступних майданчиків для привʼязки. Ви бачите лише ресурси з тих груп, де ви адмін, і які ще не додані в поточну групу.`,
+              );
+              return;
+            }
+            draft.venuesSubstep = 'link_pick';
+            this.setupDrafts.set(sk, draft);
+            await this.sendSetupDm(
+              ctx,
+              'Виберіть майданчик для привʼязки до цієї групи:',
+              this.setupLinkExistingResourceReplyMarkup(linkable),
+            );
+            return;
+          }
           await this.sendSetupDm(ctx, this.setupHubPromptText(chatTitle));
+          return;
+        }
+
+        if (venuesSub === 'link_pick') {
+          if (text === MENU_KB_BACK) {
+            draft.venuesSubstep = 'hub';
+            this.setupDrafts.set(sk, draft);
+            await this.sendSetupDm(
+              ctx,
+              this.setupHubPromptText(chatTitle),
+              this.setupVenuesHubReplyMarkup(),
+            );
+            return;
+          }
+          const raw = await this.resources.listLinkableForChatAdmin({
+            telegramChatId: targetGroupChatId,
+            adminTelegramUserId: ctx.from.id,
+          });
+          const allowed: typeof raw = [];
+          for (const row of raw) {
+            let ok = false;
+            for (const rel of row.communityResources) {
+              const gid = rel.community.telegramChatId;
+              if (gid === targetGroupChatId) {
+                continue;
+              }
+              if (
+                await isUserAdminOfGroupChat(
+                  ctx.telegram,
+                  gid,
+                  ctx.from.id,
+                )
+              ) {
+                ok = true;
+                break;
+              }
+            }
+            if (ok) {
+              allowed.push(row);
+            }
+          }
+          linkable = allowed.map((r) => ({
+            id: r.id,
+            name: r.name,
+            address: r.address,
+            visibility: r.visibility,
+          }));
+          const m = text.match(/^(\d+)\.\s/);
+          if (!m) {
+            await this.sendSetupDm(
+              ctx,
+              `Виберіть номер зі списку або натисніть «${MENU_KB_BACK}».`,
+            );
+            return;
+          }
+          const idx = Number(m[1]) - 1;
+          const picked = linkable[idx];
+          if (!picked) {
+            await this.sendSetupDm(
+              ctx,
+              `Виберіть номер зі списку або натисніть «${MENU_KB_BACK}».`,
+            );
+            return;
+          }
+          try {
+            await this.community.linkExistingResourceToCommunityFromSetup({
+              telegramChatId: targetGroupChatId,
+              adminTelegramUserId: ctx.from.id,
+              resourceId: picked.id,
+            });
+          } catch (e) {
+            this.logger.error(e instanceof Error ? e.message : e);
+            await this.sendSetupDm(
+              ctx,
+              'Не вдалося привʼязати майданчик. Перевірте права доступу та спробуйте ще раз.',
+            );
+            return;
+          }
+          draft.venuesSubstep = 'hub';
+          this.setupDrafts.set(sk, draft);
+          await this.sendSetupDm(
+            ctx,
+            `Готово: майданчик «${picked.name}» привʼязано до групи.`,
+            this.setupVenuesHubReplyMarkup(),
+          );
           return;
         }
 

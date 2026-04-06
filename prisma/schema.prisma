@@ -51,7 +51,7 @@ model Community {
   bookingWindowStartHour Int                         @default(0) @map("booking_window_start_hour")
   /// End of the window for participants, hours 1–24: [start, end); 24 — until midnight. Does not apply to administrators
   bookingWindowEndHour   Int                         @default(24) @map("booking_window_end_hour")
-  resources              Resource[]
+  communityResources     CommunityResource[]
   userBookingLimits      CommunityUserBookingLimit[]
   groupMemberships       GroupChatMembership[]
   rules                  CommunityRules?
@@ -130,18 +130,45 @@ model CommunityUserBookingLimit {
   @@map("community_user_booking_limits")
 }
 
+/// Resource in a specific community context
+model CommunityResource {
+  id                        String                     @id @default(uuid())
+  communityId               String                     @map("community_id")
+  community                 Community                  @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  resourceId                String                     @map("resource_id")
+  resource                  Resource                   @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  userBookingLimits         CommunityResourceUserBookingLimit[]
+  bookings                  Booking[]
+
+  @@unique([communityId, resourceId])
+  @@index([communityId])
+  @@index([resourceId])
+  @@map("community_resources")
+}
+
+/// Daily per-user cap in a specific community+resource context (ISO weekday 1–7)
+model CommunityResourceUserBookingLimit {
+  id                  String            @id @default(uuid())
+  communityResourceId String            @map("community_resource_id")
+  communityResource   CommunityResource @relation(fields: [communityResourceId], references: [id], onDelete: Cascade)
+  weekday             Int
+  maxMinutes          Int?              @map("max_minutes")
+
+  @@unique([communityResourceId, weekday])
+  @@index([communityResourceId])
+  @@map("community_resource_user_booking_limits")
+}
+
 model Resource {
   id           String                 @id @default(uuid())
   name         String
   address      String?
   timeZone     String                 @map("time_zone")
   visibility   ResourceVisibility     @default(ACTIVE) @map("visibility")
-  communityId  String                 @map("community_id")
-  community    Community              @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  communityResources CommunityResource[]
   bookings     Booking[]
   workingHours ResourceWorkingHours[]
 
-  @@index([communityId])
   @@map("resources")
 }
 
@@ -162,6 +189,8 @@ model ResourceWorkingHours {
 
 model Booking {
   id                  String                      @id @default(uuid())
+  communityResourceId String                      @map("community_resource_id")
+  communityResource   CommunityResource           @relation(fields: [communityResourceId], references: [id], onDelete: Cascade)
   resourceId          String                      @map("resource_id")
   resource            Resource                    @relation(fields: [resourceId], references: [id], onDelete: Cascade)
   sportKindCode       SportKindCode               @map("sport_kind_code")
@@ -178,6 +207,7 @@ model Booking {
   lookingParticipants BookingLookingParticipant[]
 
   @@index([resourceId, status])
+  @@index([communityResourceId, status])
   @@map("bookings")
 }
 

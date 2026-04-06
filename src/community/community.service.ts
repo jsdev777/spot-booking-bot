@@ -42,6 +42,26 @@ async function seedCommunityUserBookingLimits(
   });
 }
 
+async function seedCommunityResourceUserBookingLimits(
+  tx: Prisma.TransactionClient,
+  communityResourceId: string,
+) {
+  const n = await tx.communityResourceUserBookingLimit.count({
+    where: { communityResourceId },
+  });
+  if (n > 0) {
+    return;
+  }
+  await tx.communityResourceUserBookingLimit.createMany({
+    data: [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({
+      id: randomUUID(),
+      communityResourceId,
+      weekday,
+      maxMinutes: null,
+    })),
+  });
+}
+
 @Injectable()
 export class CommunityService {
   constructor(private readonly prisma: PrismaService) {}
@@ -56,7 +76,20 @@ export class CommunityService {
   findByTelegramChatId(telegramChatId: bigint) {
     return this.prisma.community.findUnique({
       where: { telegramChatId },
-      include: { resources: { orderBy: { name: 'asc' } } },
+      include: {
+        communityResources: {
+          include: { resource: true },
+          orderBy: { resource: { name: 'asc' } },
+        },
+      },
+    }).then((community) => {
+      if (!community) {
+        return null;
+      }
+      return {
+        ...community,
+        resources: community.communityResources.map((cr) => cr.resource),
+      };
     });
   }
 
@@ -79,13 +112,19 @@ export class CommunityService {
       await seedCommunityUserBookingLimits(tx, community.id);
       const resource = await tx.resource.create({
         data: {
-          communityId: community.id,
           name: params.resourceName,
           address: params.address ?? null,
           timeZone: params.timeZone,
           visibility: ResourceVisibility.ACTIVE,
         },
       });
+      const communityResource = await tx.communityResource.create({
+        data: {
+          communityId: community.id,
+          resourceId: resource.id,
+        },
+      });
+      await seedCommunityResourceUserBookingLimits(tx, communityResource.id);
       await replaceUniformWorkingHours(
         tx,
         resource.id,
@@ -129,7 +168,12 @@ export class CommunityService {
   }) {
     const existing = await this.prisma.community.findUnique({
       where: { telegramChatId: params.telegramChatId },
-      include: { resources: { orderBy: { id: 'asc' } } },
+      include: {
+        communityResources: {
+          include: { resource: true },
+          orderBy: { resource: { id: 'asc' } },
+        },
+      },
     });
     if (!existing) {
       return this.createWithFirstResource(params);
@@ -146,13 +190,19 @@ export class CommunityService {
         });
         const resource = await tx.resource.create({
           data: {
-            communityId: community.id,
             name: params.resourceName,
             address: params.address ?? null,
             timeZone: params.timeZone,
             visibility: ResourceVisibility.ACTIVE,
           },
         });
+        const communityResource = await tx.communityResource.create({
+          data: {
+            communityId: community.id,
+            resourceId: resource.id,
+          },
+        });
+        await seedCommunityResourceUserBookingLimits(tx, communityResource.id);
         await replaceUniformWorkingHours(
           tx,
           resource.id,
@@ -166,9 +216,9 @@ export class CommunityService {
     const updateCommunityName = params.updateCommunityName !== false;
     const targetId =
       params.resourceId &&
-      existing.resources.some((r) => r.id === params.resourceId)
+      existing.communityResources.some((r) => r.resource.id === params.resourceId)
         ? params.resourceId
-        : existing.resources[0]?.id;
+        : existing.communityResources[0]?.resource.id;
 
     return this.prisma.$transaction(async (tx) => {
       const community = await tx.community.update({
@@ -198,13 +248,19 @@ export class CommunityService {
       }
       const resource = await tx.resource.create({
         data: {
-          communityId: community.id,
           name: params.resourceName,
           address: params.address ?? null,
           timeZone: params.timeZone,
           visibility: ResourceVisibility.ACTIVE,
         },
       });
+      const communityResource = await tx.communityResource.create({
+        data: {
+          communityId: community.id,
+          resourceId: resource.id,
+        },
+      });
+      await seedCommunityResourceUserBookingLimits(tx, communityResource.id);
       await replaceUniformWorkingHours(
         tx,
         resource.id,
@@ -230,7 +286,9 @@ export class CommunityService {
     const ok = await this.prisma.resource.findFirst({
       where: {
         id: params.resourceId,
-        community: { telegramChatId: params.telegramChatId },
+        communityResources: {
+          some: { community: { telegramChatId: params.telegramChatId } },
+        },
       },
       select: { id: true },
     });
@@ -326,7 +384,9 @@ export class CommunityService {
     return this.prisma.resource.findFirst({
       where: {
         id: params.resourceId,
-        community: { telegramChatId: params.telegramChatId },
+        communityResources: {
+          some: { community: { telegramChatId: params.telegramChatId } },
+        },
       },
       include: {
         workingHours: { orderBy: { weekday: 'asc' } },
@@ -336,8 +396,23 @@ export class CommunityService {
 
   /** “Hours per user” limits by day of the week (ISO 1–7) for the community. */
   async getUserBookingLimitsForChat(telegramChatId: bigint) {
-    return this.prisma.communityUserBookingLimit.findMany({
-      where: { community: { telegramChatId } },
+    const community = await this.prisma.community.findUnique({
+      where: { telegramChatId },
+      select: {
+        id: true,
+        communityResources: { select: { id: true }, orderBy: { id: 'asc' } },
+      },
+    });
+    if (!community || community.communityResources.length === 0) {
+      return [];
+    }
+    await this.prisma.$transaction(async (tx) => {
+      for (const cr of community.communityResources) {
+        await seedCommunityResourceUserBookingLimits(tx, cr.id);
+      }
+    });
+    return this.prisma.communityResourceUserBookingLimit.findMany({
+      where: { communityResourceId: community.communityResources[0].id },
       orderBy: { weekday: 'asc' },
     });
   }
@@ -368,15 +443,83 @@ export class CommunityService {
     }
     return this.prisma.$transaction(async (tx) => {
       await seedCommunityUserBookingLimits(tx, c.id);
+      const links = await tx.communityResource.findMany({
+        where: { communityId: c.id },
+        select: { id: true },
+      });
+      for (const link of links) {
+        await seedCommunityResourceUserBookingLimits(tx, link.id);
+        await tx.communityResourceUserBookingLimit.update({
+          where: {
+            communityResourceId_weekday: {
+              communityResourceId: link.id,
+              weekday: params.weekday,
+            },
+          },
+          data: { maxMinutes: params.maxMinutes },
+        });
+      }
       return tx.communityUserBookingLimit.update({
         where: {
-          communityId_weekday: {
-            communityId: c.id,
-            weekday: params.weekday,
-          },
+          communityId_weekday: { communityId: c.id, weekday: params.weekday },
         },
         data: { maxMinutes: params.maxMinutes },
       });
+    });
+  }
+
+  async linkExistingResourceToCommunityFromSetup(params: {
+    telegramChatId: bigint;
+    adminTelegramUserId: number;
+    resourceId: string;
+  }) {
+    const community = await this.prisma.community.findUnique({
+      where: { telegramChatId: params.telegramChatId },
+      select: { id: true },
+    });
+    if (!community) {
+      throw new Error('Community not found');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const resource = await tx.resource.findUnique({
+        where: { id: params.resourceId },
+        include: {
+          communityResources: {
+            include: {
+              community: true,
+            },
+          },
+        },
+      });
+      if (!resource) {
+        throw new Error('Resource not found');
+      }
+      // Server-side guard: the linked resource must come from another community
+      // and must not already be linked to the current one.
+      const hasSourceCommunity = resource.communityResources.some(
+        (cr) => cr.community.telegramChatId !== params.telegramChatId,
+      );
+      const alreadyLinked = resource.communityResources.some(
+        (cr) => cr.communityId === community.id,
+      );
+      if (!hasSourceCommunity || alreadyLinked) {
+        throw new Error('Resource is not allowed for linking');
+      }
+      const rel = await tx.communityResource.upsert({
+        where: {
+          communityId_resourceId: {
+            communityId: community.id,
+            resourceId: resource.id,
+          },
+        },
+        update: {},
+        create: {
+          communityId: community.id,
+          resourceId: resource.id,
+        },
+      });
+      await seedCommunityResourceUserBookingLimits(tx, rel.id);
+      return { resource, communityResource: rel };
     });
   }
 }
