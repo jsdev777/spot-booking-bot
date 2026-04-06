@@ -522,4 +522,34 @@ export class CommunityService {
       return { resource, communityResource: rel };
     });
   }
+
+  async getCommunityRulesForChat(telegramChatId: bigint): Promise<string | null> {
+    const comm = await this.prisma.community.findUnique({
+      where: { telegramChatId },
+      include: { rules: true },
+    });
+    if (!comm) {
+      return null;
+    }
+    const txt = comm.rules?.text?.trim() ?? '';
+    return txt.length > 0 ? txt : null;
+  }
+
+  async upsertCommunityRulesForChat(params: {
+    telegramChatId: bigint;
+    text: string;
+  }) {
+    const comm = await this.prisma.community.findUnique({
+      where: { telegramChatId: params.telegramChatId },
+      select: { id: true },
+    });
+    if (!comm) {
+      throw new Error('Community not found');
+    }
+    return this.prisma.communityRules.upsert({
+      where: { communityId: comm.id },
+      update: { text: params.text },
+      create: { communityId: comm.id, text: params.text },
+    });
+  }
 }
