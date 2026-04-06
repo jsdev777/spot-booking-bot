@@ -99,13 +99,13 @@ const SETUP_KB_KEEP_ADDRESS = 'Залишити адресу без змін';
 const SETUP_KB_NO_ADDRESS = 'Без адреси';
 /** Без зайвих пробілів на кінці — інакше після `.trim()` у ЛС текст кнопки не збігається. */
 const SETUP_KB_CANCEL = '« Скасування';
-const SETUP_KB_VENUES = 'Майданчики';
+const SETUP_KB_VENUES = 'Усі майданчики';
 const SETUP_KB_BOOKING_WINDOW = 'Час бронювання в групі';
 const SETUP_KB_BOOKING_LIMIT = 'Ліміт на бронювання';
 const LIMIT_KB_UNLIMITED = 'Без обмежень';
 const BW_KB_END_MIDNIGHT = '24:00 — кінець дня';
 const SETUP_KB_NEW_RESOURCE = '➕ Додати майданчик';
-const SETUP_KB_LINK_EXISTING_RESOURCE = '🔗 Привʼязати існуючий';
+const SETUP_KB_LINK_EXISTING_RESOURCE = 'Привʼязати існуючий майданчик';
 const SETUP_KB_RESOURCE_ACTIVE = 'Активна';
 const SETUP_KB_RESOURCE_INACTIVE = 'Не активна';
 
@@ -160,6 +160,8 @@ interface SetupDraft {
   bwStartHourDraft?: number;
   /** ISO 1–7 для мастера лимита по дням. */
   limitWeekdayDraft?: number;
+  /** Після часового поясу одразу крок видимості (істотує майданчик), без вибору єдиного «годинника». */
+  postTzVisibilityOnly?: boolean;
 }
 
 interface WhPerDayEditDraft {
@@ -378,8 +380,15 @@ export class BotUpdate {
     return Markup.keyboard(kbRowsPaired(keys)).resize().persistent(true);
   }
 
-  private groupEntryReplyMarkupForChatUser() {
+  private async groupEntryReplyMarkupForChatUser(
+    telegram: Context['telegram'],
+    chatId: bigint,
+    userId: number,
+  ) {
     const rows: string[][] = [[MENU_KB_CHAT_BOT, MENU_KB_FREE_SLOTS]];
+    if (await isUserAdminOfGroupChat(telegram, chatId, userId)) {
+      rows[0].push(MENU_KB_SETUP);
+    }
     return Markup.keyboard(rows).resize().persistent(true);
   }
 
@@ -388,7 +397,11 @@ export class BotUpdate {
       return this.mainMenuReplyMarkupForDmUser(ctx.telegram, ctx.from.id);
     }
     if (isGroupChat(ctx) && ctx.from) {
-      return this.groupEntryReplyMarkupForChatUser();
+      return this.groupEntryReplyMarkupForChatUser(
+        ctx.telegram,
+        BigInt(ctx.chat!.id),
+        ctx.from.id,
+      );
     }
     return Markup.keyboard([[MENU_KB_CHAT_BOT]])
       .resize()
@@ -631,7 +644,16 @@ export class BotUpdate {
     }
     const gid = this.activeGroupByUser.get(ctx.from.id);
     if (gid != null) {
-      return gid;
+      try {
+        const m = await ctx.telegram.getChatMember(gid.toString(), ctx.from.id);
+        if (TelegramMembersService.isStatusInChat(m.status)) {
+          return gid;
+        }
+      } catch {
+        /* stale/invalid active group in DM */
+      }
+      this.activeGroupByUser.delete(ctx.from.id);
+      this.groupPickerLabelsByUser.delete(ctx.from.id);
     }
     return this.promptGroupPickerInDm(ctx);
   }
@@ -3289,6 +3311,7 @@ export class BotUpdate {
     draft: SetupDraft,
     resourceVisibility: ResourceVisibility,
     targetGroupChatId: bigint,
+    opts?: { startPerDayImmediately?: boolean },
   ) {
     const uid = ctx.from!.id;
     const sk = this.setupSk(targetGroupChatId, uid);
@@ -3346,6 +3369,20 @@ export class BotUpdate {
           ctx.from.id,
         ));
       this.lastSetupGroupByUser.set(uid, String(targetGroupChatId));
+      if (opts?.startPerDayImmediately) {
+        this.whDmStateByUser.set(uid, {
+          kind: 'pick_day',
+          groupChatId: targetGroupChatId,
+          resourceId: resource.id,
+        });
+        await this.replyWithMainMenuInDmForGroup(
+          ctx,
+          targetGroupChatId,
+          'Виберіть день тижня (Пн — понеділок). Зміни зберігаються одразу.',
+        );
+        await this.sendSetupDm(ctx, 'Виберіть день тижня:', this.whPickDayReplyMarkup());
+        return;
+      }
       if (offered) {
         this.whDmStateByUser.set(uid, {
           kind: 'offer',
@@ -3905,12 +3942,35 @@ export class BotUpdate {
           return;
         }
         draft.timeZone = SETUP_TIMEZONES[tzIdx];
-        draft.step = 4;
+        // Тимчасовий однаковий графік для БД; далі адмін налаштовує кожен день окремо.
+        draft.slotStart = 8;
+        draft.slotEnd = 21;
+        const isEditExisting =
+          !!draft.resourceId && !draft.creatingNewResource;
+        if (isEditExisting) {
+          draft.postTzVisibilityOnly = true;
+          draft.step = 6;
+          this.setupDrafts.set(sk, draft);
+          const cur =
+            draft.setupResourceVisibility === ResourceVisibility.INACTIVE
+              ? 'неактивна (у бронюванні для звичайних учасників не відображається)'
+              : 'активна';
+          await this.sendSetupDm(
+            ctx,
+            `${this.setupStepLine(6, draft)}: статус майданчика.\n\n` +
+              `Зараз у боті: ${cur}.\n\n` +
+              `Виберіть статус — далі одразу налаштування годин за днями тижня:`,
+            this.setupResourceVisibilityReplyMarkup(),
+          );
+          return;
+        }
         this.setupDrafts.set(sk, draft);
-        await this.sendSetupDm(
+        await this.persistSetupDraft(
           ctx,
-          `${this.setupStepLine(4, draft)}: час відкриття — найраніший можливий час початку бронювання`,
-          this.setupStartHourReplyMarkup(),
+          draft,
+          ResourceVisibility.ACTIVE,
+          targetGroupChatId,
+          { startPerDayImmediately: true },
         );
         return;
       }
@@ -4028,6 +4088,41 @@ export class BotUpdate {
         return;
       }
       case 6: {
+        if (draft.postTzVisibilityOnly) {
+          if (text === MENU_KB_BACK) {
+            delete draft.postTzVisibilityOnly;
+            draft.step = 3;
+            delete draft.timeZone;
+            delete draft.slotStart;
+            delete draft.slotEnd;
+            this.setupDrafts.set(sk, draft);
+            await this.sendSetupDm(
+              ctx,
+              `${this.setupStepLine(3, draft)}: часовий пояс (слоти будуть у цьому поясі)`,
+              this.setupTzReplyMarkup(),
+            );
+            return;
+          }
+          let vis: ResourceVisibility | undefined;
+          if (text === SETUP_KB_RESOURCE_ACTIVE) {
+            vis = ResourceVisibility.ACTIVE;
+          } else if (text === SETUP_KB_RESOURCE_INACTIVE) {
+            vis = ResourceVisibility.INACTIVE;
+          }
+          if (vis === undefined) {
+            return;
+          }
+          delete draft.postTzVisibilityOnly;
+          this.setupDrafts.set(sk, draft);
+          await this.persistSetupDraft(
+            ctx,
+            draft,
+            vis,
+            targetGroupChatId,
+            { startPerDayImmediately: true },
+          );
+          return;
+        }
         if (text === MENU_KB_BACK) {
           draft.step = 5;
           delete draft.slotEnd;
@@ -4220,7 +4315,11 @@ export class BotUpdate {
           ? 'Ласкаво просимо!\n\nНатисніть «Чат Бот», щоб працювати з меню в особистих повідомленнях.'
           : 'Ласкаво просимо!\n\nМайданчик ще не налаштований. Адміністратору: команда /setup.';
         try {
-          const kb = this.groupEntryReplyMarkupForChatUser();
+          const kb = await this.groupEntryReplyMarkupForChatUser(
+            ctx.telegram,
+            chatId,
+            u.id,
+          );
           await ctx.telegram.sendMessage(chat.id, text, kb);
         } catch (e) {
           this.logger.warn(
@@ -4507,6 +4606,26 @@ export class BotUpdate {
         'Не вдалося визначити групу. Попросіть надіслати правила ще раз.',
         { show_alert: true },
       );
+      return;
+    }
+    try {
+      const member = await ctx.telegram.getChatMember(
+        groupChatId.toString(),
+        ctx.from.id,
+      );
+      if (!TelegramMembersService.isStatusInChat(member.status)) {
+        await ctx.answerCbQuery('Ви не є учасником цієї групи.', {
+          show_alert: true,
+        });
+        await ctx.reply(
+          'Підтвердити правила можна лише для групи, учасником якої ви є зараз.',
+        );
+        return;
+      }
+    } catch {
+      await ctx.answerCbQuery('Група недоступна або вас немає в групі.', {
+        show_alert: true,
+      });
       return;
     }
     await ctx.answerCbQuery();
