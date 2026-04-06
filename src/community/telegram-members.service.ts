@@ -309,6 +309,7 @@ export class TelegramMembersService {
       },
       data: {
         isActive: false,
+        groupRulesAccepted: false,
         leftAt: new Date(),
       },
     });
