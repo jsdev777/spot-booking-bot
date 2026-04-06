@@ -46,6 +46,13 @@ async function seedCommunityUserBookingLimits(
 export class CommunityService {
   constructor(private readonly prisma: PrismaService) {}
 
+  listAllCommunitiesBasic() {
+    return this.prisma.community.findMany({
+      select: { telegramChatId: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
   findByTelegramChatId(telegramChatId: bigint) {
     return this.prisma.community.findUnique({
       where: { telegramChatId },

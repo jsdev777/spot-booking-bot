@@ -18,6 +18,39 @@ export type RecordJoinResult = {
 export class TelegramMembersService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async getGroupRulesText(telegramChatId: bigint): Promise<string | null> {
+    const comm = await this.prisma.community.findUnique({
+      where: { telegramChatId },
+      include: { rules: true },
+    });
+    const rulesText = comm?.rules?.text?.trim() ?? '';
+    return rulesText.length > 0 ? rulesText : null;
+  }
+
+  async listActiveUserCommunities(telegramUserId: number): Promise<
+    {
+      telegramChatId: bigint;
+      communityName: string | null;
+      groupRulesAccepted: boolean;
+    }[]
+  > {
+    const rows = await this.prisma.groupChatMembership.findMany({
+      where: {
+        isActive: true,
+        user: { telegramUserId: BigInt(telegramUserId) },
+      },
+      include: {
+        community: { select: { name: true } },
+      },
+      orderBy: [{ joinedAt: 'desc' }],
+    });
+    return rows.map((r) => ({
+      telegramChatId: r.telegramChatId,
+      communityName: r.community?.name ?? null,
+      groupRulesAccepted: r.groupRulesAccepted,
+    }));
+  }
+
   /** A user is considered to be in the chat if they have one of these chat_member statuses. */
   static isStatusInChat(status: string): boolean {
     return IN_CHAT_STATUSES.has(status);
