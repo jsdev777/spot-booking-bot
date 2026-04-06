@@ -8,7 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 type BookingReminder = Prisma.BookingGetPayload<{
   include: {
-    resource: { include: { community: true } };
+    resource: true;
     lookingParticipants: true;
   };
 }>;
@@ -46,7 +46,7 @@ export class ReminderService {
           ],
         },
         include: {
-          resource: { include: { community: true } },
+          resource: true,
           lookingParticipants: true,
         },
       });
