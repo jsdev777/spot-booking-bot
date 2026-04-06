@@ -1131,7 +1131,6 @@ export class BotUpdate {
         username: ctx.from!.username,
         firstName: ctx.from!.first_name,
         lastName: ctx.from!.last_name,
-        treatAsGroupAdmin: false,
       });
       if (joinResult.pendingGroupRules && joinResult.rulesText) {
         try {
@@ -4260,14 +4259,12 @@ export class BotUpdate {
     }
 
     if (nowIn) {
-      const isTgAdmin = await isUserAdminOfGroupChat(ctx.telegram, chatId, u.id);
       const joinResult = await this.telegramMembers.recordJoin({
         telegramChatId: chatId,
         telegramUserId: u.id,
         username: u.username,
         firstName: u.first_name,
         lastName: u.last_name,
-        treatAsGroupAdmin: isTgAdmin,
       });
 
       if (!wasIn) {
