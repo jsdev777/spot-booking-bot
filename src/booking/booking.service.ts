@@ -6,16 +6,8 @@ import {
   set,
   startOfDay,
 } from 'date-fns';
-import {
-  formatInTimeZone,
-  fromZonedTime,
-  toZonedTime,
-} from 'date-fns-tz';
-import {
-  BookingStatus,
-  Prisma,
-  SportKindCode,
-} from '@prisma/client';
+import { formatInTimeZone, fromZonedTime, toZonedTime } from 'date-fns-tz';
+import { BookingStatus, Prisma, SportKindCode } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ResourceService } from '../community/resource.service';
 import {
@@ -142,9 +134,11 @@ export class BookingService {
     startTimeUtc: Date;
     limitTimeZone: string;
   }): Promise<{ cap: number; used: number } | null> {
-    const limits = await this.prisma.communityResourceUserBookingLimit.findMany({
-      where: { communityResourceId: params.communityResourceId },
-    });
+    const limits = await this.prisma.communityResourceUserBookingLimit.findMany(
+      {
+        where: { communityResourceId: params.communityResourceId },
+      },
+    );
     const isoWeekday = Number(
       formatInTimeZone(params.startTimeUtc, params.limitTimeZone, 'i'),
     );
@@ -500,9 +494,7 @@ export class BookingService {
 
     const userName = displayUserName(params.from);
     const looking = params.isLookingForPlayers === true;
-    const requiredPlayers = looking
-      ? (params.requiredPlayers ?? 0)
-      : 0;
+    const requiredPlayers = looking ? (params.requiredPlayers ?? 0) : 0;
     if (looking && (requiredPlayers < 1 || requiredPlayers > 50)) {
       throw new Error('requiredPlayers must be 1–50 when isLookingForPlayers');
     }
@@ -549,13 +541,13 @@ export class BookingService {
           startLocal: formatInTimeZone(startTime, timeZone, 'yyyy-MM-dd HH:mm'),
         }),
       );
-    return {
-      resourceId: res.id,
-      startTime,
-      endTime,
-      resourceName: res.name,
-      timeZone,
-    };
+      return {
+        resourceId: res.id,
+        startTime,
+        endTime,
+        resourceName: res.name,
+        timeZone,
+      };
     } catch (e) {
       if (e instanceof SlotTakenError) {
         throw e;
@@ -568,18 +560,22 @@ export class BookingService {
     bookingId: string;
     telegramChatId: bigint;
     telegramUserId: number;
+    /** Скасування чужого бронювання адміністратором групи (перевірку прав Telegram робить бот). */
+    asGroupAdmin?: boolean;
   }): Promise<BookingCancelNotification> {
-    const booking = await this.prisma.booking.findFirst({
-      where: {
-        id: params.bookingId,
-        status: { in: OCCUPIED_BOOKING_STATUSES },
-        userId: BigInt(params.telegramUserId),
-        resource: {
-          communityResources: {
-            some: { community: { telegramChatId: params.telegramChatId } },
-          },
+    const whereCommon = {
+      id: params.bookingId,
+      status: { in: OCCUPIED_BOOKING_STATUSES },
+      resource: {
+        communityResources: {
+          some: { community: { telegramChatId: params.telegramChatId } },
         },
       },
+    };
+    const booking = await this.prisma.booking.findFirst({
+      where: params.asGroupAdmin
+        ? whereCommon
+        : { ...whereCommon, userId: BigInt(params.telegramUserId) },
       include: {
         resource: true,
         communityResource: { include: { community: true } },
@@ -596,8 +592,11 @@ export class BookingService {
     const a = formatInTimeZone(booking.startTime, tz, 'HH:mm');
     const z = formatInTimeZone(booking.endTime, tz, 'HH:mm');
     const sport = booking.sportKind.nameUa.trim() || booking.sportKindCode;
+    const intro = params.asGroupAdmin
+      ? 'Бронювання скасовано адміністратором групи.'
+      : 'Бронювання скасовано організатором.';
     const cancelNoticeText =
-      `Бронювання скасовано організатором.\n\n` +
+      `${intro}\n\n` +
       `Майданчик: «${booking.resource.name}»\n` +
       `Час: ${day} ${a}–${z} (${tz})\n` +
       `Спорт: ${sport}`;
@@ -661,8 +660,40 @@ export class BookingService {
           },
         },
       },
-      include: { resource: true, communityResource: { include: { community: true } } },
+      include: {
+        resource: true,
+        communityResource: { include: { community: true } },
+      },
       orderBy: { startTime: 'asc' },
+    });
+  }
+
+  /** Усі ще дійсні броні (PENDING/ACTIVE) у чаті на сьогодні/завтра — локальна дата майданчику. */
+  async listAllBookingsForChatDay(params: {
+    telegramChatId: bigint;
+    dayOffset: 0 | 1;
+    now?: Date;
+  }) {
+    const now = params.now ?? new Date();
+    const rows = await this.prisma.booking.findMany({
+      where: {
+        status: { in: OCCUPIED_BOOKING_STATUSES },
+        resource: {
+          communityResources: {
+            some: { community: { telegramChatId: params.telegramChatId } },
+          },
+        },
+      },
+      include: { resource: true, sportKind: true },
+      orderBy: { startTime: 'asc' },
+    });
+    return rows.filter((b) => {
+      const tz = b.resource.timeZone;
+      const localNow = toZonedTime(now, tz);
+      const targetDay = addDays(startOfDay(localNow), params.dayOffset);
+      const targetKey = formatInTimeZone(targetDay, tz, 'yyyy-MM-dd');
+      const bookingDayKey = formatInTimeZone(b.startTime, tz, 'yyyy-MM-dd');
+      return bookingDayKey === targetKey;
     });
   }
 

@@ -74,23 +74,25 @@ export class CommunityService {
   }
 
   findByTelegramChatId(telegramChatId: bigint) {
-    return this.prisma.community.findUnique({
-      where: { telegramChatId },
-      include: {
-        communityResources: {
-          include: { resource: true },
-          orderBy: { resource: { name: 'asc' } },
+    return this.prisma.community
+      .findUnique({
+        where: { telegramChatId },
+        include: {
+          communityResources: {
+            include: { resource: true },
+            orderBy: { resource: { name: 'asc' } },
+          },
         },
-      },
-    }).then((community) => {
-      if (!community) {
-        return null;
-      }
-      return {
-        ...community,
-        resources: community.communityResources.map((cr) => cr.resource),
-      };
-    });
+      })
+      .then((community) => {
+        if (!community) {
+          return null;
+        }
+        return {
+          ...community,
+          resources: community.communityResources.map((cr) => cr.resource),
+        };
+      });
   }
 
   async createWithFirstResource(params: {
@@ -102,47 +104,49 @@ export class CommunityService {
     slotEndHour: number;
     resourceName: string;
   }) {
-    return this.prisma.$transaction(async (tx) => {
-      const community = await tx.community.create({
-        data: {
-          telegramChatId: params.telegramChatId,
-          name: params.name,
-        },
+    return this.prisma
+      .$transaction(async (tx) => {
+        const community = await tx.community.create({
+          data: {
+            telegramChatId: params.telegramChatId,
+            name: params.name,
+          },
+        });
+        await seedCommunityUserBookingLimits(tx, community.id);
+        const resource = await tx.resource.create({
+          data: {
+            name: params.resourceName,
+            address: params.address ?? null,
+            timeZone: params.timeZone,
+            visibility: ResourceVisibility.ACTIVE,
+          },
+        });
+        const communityResource = await tx.communityResource.create({
+          data: {
+            communityId: community.id,
+            resourceId: resource.id,
+          },
+        });
+        await seedCommunityResourceUserBookingLimits(tx, communityResource.id);
+        await replaceUniformWorkingHours(
+          tx,
+          resource.id,
+          params.slotStartHour,
+          params.slotEndHour,
+        );
+        return { community, resource };
+      })
+      .then(async (result) => {
+        await this.prisma.groupChatMembership.updateMany({
+          where: {
+            telegramChatId: params.telegramChatId,
+            isActive: true,
+            groupRulesAccepted: true,
+          },
+          data: { communityId: result.community.id },
+        });
+        return result;
       });
-      await seedCommunityUserBookingLimits(tx, community.id);
-      const resource = await tx.resource.create({
-        data: {
-          name: params.resourceName,
-          address: params.address ?? null,
-          timeZone: params.timeZone,
-          visibility: ResourceVisibility.ACTIVE,
-        },
-      });
-      const communityResource = await tx.communityResource.create({
-        data: {
-          communityId: community.id,
-          resourceId: resource.id,
-        },
-      });
-      await seedCommunityResourceUserBookingLimits(tx, communityResource.id);
-      await replaceUniformWorkingHours(
-        tx,
-        resource.id,
-        params.slotStartHour,
-        params.slotEndHour,
-      );
-      return { community, resource };
-    }).then(async (result) => {
-      await this.prisma.groupChatMembership.updateMany({
-        where: {
-          telegramChatId: params.telegramChatId,
-          isActive: true,
-          groupRulesAccepted: true,
-        },
-        data: { communityId: result.community.id },
-      });
-      return result;
-    });
   }
 
   /**
@@ -216,7 +220,9 @@ export class CommunityService {
     const updateCommunityName = params.updateCommunityName !== false;
     const targetId =
       params.resourceId &&
-      existing.communityResources.some((r) => r.resource.id === params.resourceId)
+      existing.communityResources.some(
+        (r) => r.resource.id === params.resourceId,
+      )
         ? params.resourceId
         : existing.communityResources[0]?.resource.id;
 
@@ -523,7 +529,9 @@ export class CommunityService {
     });
   }
 
-  async getCommunityRulesForChat(telegramChatId: bigint): Promise<string | null> {
+  async getCommunityRulesForChat(
+    telegramChatId: bigint,
+  ): Promise<string | null> {
     const comm = await this.prisma.community.findUnique({
       where: { telegramChatId },
       include: { rules: true },

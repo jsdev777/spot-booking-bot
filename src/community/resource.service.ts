@@ -11,71 +11,79 @@ export class ResourceService {
     telegramChatId: bigint,
     opts?: { onlyActive?: boolean },
   ) {
-    return this.prisma.resource.findFirst({
-      where: {
-        id: resourceId,
-        communityResources: {
-          some: {
-            community: { telegramChatId },
+    return this.prisma.resource
+      .findFirst({
+        where: {
+          id: resourceId,
+          communityResources: {
+            some: {
+              community: { telegramChatId },
+            },
           },
+          ...(opts?.onlyActive
+            ? { visibility: ResourceVisibility.ACTIVE }
+            : {}),
         },
-        ...(opts?.onlyActive ? { visibility: ResourceVisibility.ACTIVE } : {}),
-      },
-      include: {
-        communityResources: {
-          where: { community: { telegramChatId } },
-          include: { community: true },
-          take: 1,
+        include: {
+          communityResources: {
+            where: { community: { telegramChatId } },
+            include: { community: true },
+            take: 1,
+          },
+          workingHours: { orderBy: { weekday: 'asc' } },
         },
-        workingHours: { orderBy: { weekday: 'asc' } },
-      },
-    }).then((row) => {
-      if (!row) {
-        return null;
-      }
-      const rel = row.communityResources[0];
-      if (!rel) {
-        return null;
-      }
-      return {
-        ...row,
-        community: rel.community,
-        communityResourceId: rel.id,
-      };
-    });
+      })
+      .then((row) => {
+        if (!row) {
+          return null;
+        }
+        const rel = row.communityResources[0];
+        if (!rel) {
+          return null;
+        }
+        return {
+          ...row,
+          community: rel.community,
+          communityResourceId: rel.id,
+        };
+      });
   }
 
   listForChat(telegramChatId: bigint, opts?: { onlyActive?: boolean }) {
-    return this.prisma.resource.findMany({
-      where: {
-        communityResources: {
-          some: { community: { telegramChatId } },
+    return this.prisma.resource
+      .findMany({
+        where: {
+          communityResources: {
+            some: { community: { telegramChatId } },
+          },
+          ...(opts?.onlyActive
+            ? { visibility: ResourceVisibility.ACTIVE }
+            : {}),
         },
-        ...(opts?.onlyActive ? { visibility: ResourceVisibility.ACTIVE } : {}),
-      },
-      orderBy: { name: 'asc' },
-      include: {
-        communityResources: {
-          where: { community: { telegramChatId } },
-          include: { community: true },
-          take: 1,
+        orderBy: { name: 'asc' },
+        include: {
+          communityResources: {
+            where: { community: { telegramChatId } },
+            include: { community: true },
+            take: 1,
+          },
         },
-      },
-    }).then((rows) =>
-      rows
-        .map((row) => {
-          const rel = row.communityResources[0];
-          if (!rel) {
-            return null;
-          }
-          return {
-            ...row,
-            community: rel.community,
-            communityResourceId: rel.id,
-          };
-        })
-        .filter((x): x is NonNullable<typeof x> => x != null),
-    );
+      })
+      .then((rows) =>
+        rows
+          .map((row) => {
+            const rel = row.communityResources[0];
+            if (!rel) {
+              return null;
+            }
+            return {
+              ...row,
+              community: rel.community,
+              communityResourceId: rel.id,
+            };
+          })
+          .filter((x): x is NonNullable<typeof x> => x != null),
+      );
   }
 
   listLinkableForChatAdmin(params: {
@@ -87,7 +95,9 @@ export class ResourceService {
         communityResources: {
           // Candidate resources must already exist in at least one community
           // different from the current one and must not be linked to the current group yet.
-          some: { community: { telegramChatId: { not: params.telegramChatId } } },
+          some: {
+            community: { telegramChatId: { not: params.telegramChatId } },
+          },
           none: { community: { telegramChatId: params.telegramChatId } },
         },
       },
@@ -112,5 +122,36 @@ export class ResourceService {
       },
     });
     return [...new Set(links.map((x) => x.community.telegramChatId))];
+  }
+
+  /**
+   * Видалення майданчика з контексту групи під час /setup.
+   * Якщо ресурс привʼязаний лише до цієї спільноти — повністю стирається Resource (каскадом: working_hours, bookings, community_resources тощо).
+   * Якщо є інші групи — лише видаляється звʼязок CommunityResource для цього чату (каскадом: броні та ліміти цього звʼязку).
+   */
+  async deleteResourceForCommunityFromSetup(params: {
+    telegramChatId: bigint;
+    resourceId: string;
+  }): Promise<{ mode: 'unlinked' | 'deleted_full'; resourceName: string }> {
+    const cr = await this.prisma.communityResource.findFirst({
+      where: {
+        resourceId: params.resourceId,
+        community: { telegramChatId: params.telegramChatId },
+      },
+      include: { resource: { select: { id: true, name: true } } },
+    });
+    if (!cr) {
+      throw new Error('RESOURCE_NOT_LINKED_TO_CHAT');
+    }
+    const linkCount = await this.prisma.communityResource.count({
+      where: { resourceId: params.resourceId },
+    });
+    const resourceName = cr.resource.name;
+    if (linkCount > 1) {
+      await this.prisma.communityResource.delete({ where: { id: cr.id } });
+      return { mode: 'unlinked', resourceName };
+    }
+    await this.prisma.resource.delete({ where: { id: params.resourceId } });
+    return { mode: 'deleted_full', resourceName };
   }
 }
