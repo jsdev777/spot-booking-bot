@@ -20,6 +20,7 @@ import { CommunityService } from '../community/community.service';
 import { TelegramMembersService } from '../community/telegram-members.service';
 import { ResourceService } from '../community/resource.service';
 import { SETUP_TIMEZONES } from '../community/setup.constants';
+import { MetricsService } from '../metrics/metrics.service';
 import * as PrismaClient from '@prisma/client';
 import {
   isGroupAdmin,
@@ -221,6 +222,7 @@ export class BotUpdate {
     private readonly community: CommunityService,
     private readonly resources: ResourceService,
     private readonly telegramMembers: TelegramMembersService,
+    private readonly metrics: MetricsService,
   ) {}
 
   private sk(ctx: Context): string {
@@ -642,11 +644,13 @@ export class BotUpdate {
     telegram: Context['telegram'],
     chatId: number | string,
     text: string,
+    kind: 'dm' | 'group',
   ): Promise<void> {
     let attempt = 0;
     while (true) {
       try {
         await telegram.sendMessage(chatId, text);
+        this.metrics.incTelegramSend('success', kind);
         return;
       } catch (e) {
         const err = e as {
@@ -658,8 +662,10 @@ export class BotUpdate {
         const retryAfterSec = err.response?.parameters?.retry_after ?? 1;
         const isRateLimit = err.response?.error_code === 429;
         if (!isRateLimit || attempt >= TELEGRAM_MAX_429_RETRIES) {
+          this.metrics.incTelegramSend('error', kind);
           throw e;
         }
+        this.metrics.incTelegramRetry(kind);
         await new Promise((resolve) =>
           setTimeout(resolve, Math.max(1, retryAfterSec) * 1000),
         );
@@ -672,6 +678,7 @@ export class BotUpdate {
     telegram: Context['telegram'],
     chatIds: Array<number | string>,
     text: string,
+    kind: 'dm' | 'group',
     onError: (chatId: number | string, error: unknown) => void,
   ): Promise<void> {
     for (let i = 0; i < chatIds.length; i += TELEGRAM_SEND_BATCH_SIZE) {
@@ -679,7 +686,7 @@ export class BotUpdate {
       await Promise.all(
         batch.map(async (chatId) => {
           try {
-            await this.sendMessageWithBackoff(telegram, chatId, text);
+            await this.sendMessageWithBackoff(telegram, chatId, text, kind);
           } catch (e) {
             onError(chatId, e);
           }
@@ -1856,6 +1863,7 @@ export class BotUpdate {
       ctx.telegram,
       notify.recipientTelegramIds,
       notify.cancelNoticeText,
+      'dm',
       (uid, e) => {
         this.logger.warn(
           `booking_cancel_dm failed user=${uid}: ${e instanceof Error ? e.message : String(e)}`,
@@ -3450,6 +3458,7 @@ export class BotUpdate {
       ctx.telegram,
       chatIds.map((gid) => gid.toString()),
       text,
+      'group',
       (gid, e) => {
         this.logger.warn(
           `resource_group_broadcast failed chat=${gid}: ${e instanceof Error ? e.message : String(e)}`,

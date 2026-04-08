@@ -60,6 +60,18 @@ jobs:
             scripts/deploy.sh \
             ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/
 
+      - name: Transfer monitoring stack files
+        run: |
+          echo "Transferring monitoring files..."
+          scp -P ${{ secrets.SSH_PORT || 22 }} \
+            docker-compose.monitoring.yml \
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/
+          ssh -p ${{ secrets.SSH_PORT || 22 }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "mkdir -p ${{ secrets.DEPLOY_PATH }}/monitoring"
+          scp -r -P ${{ secrets.SSH_PORT || 22 }} \
+            monitoring/* \
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/monitoring/
+
       - name: Create environment file
         run: |
           cat > deploy.env << ENVEOF
@@ -83,6 +95,12 @@ jobs:
              source .env.deploy && \
              ./deploy.sh ${{ env.IMAGE_TAG }} && \
              rm -f .env.deploy"
+
+      - name: Deploy monitoring stack
+        run: |
+          ssh -p ${{ secrets.SSH_PORT || 22 }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "cd ${{ secrets.DEPLOY_PATH }} && \
+             docker compose -f docker-compose.monitoring.yml up -d"
 
       - name: Verify deployment
         run: |
