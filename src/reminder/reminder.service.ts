@@ -6,6 +6,9 @@ import { Context, Telegraf } from 'telegraf';
 import { BookingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
+const REMINDER_SEND_CONCURRENCY = 6;
+const MAX_429_RETRIES = 2;
+
 type BookingReminder = Prisma.BookingGetPayload<{
   include: {
     resource: true;
@@ -23,8 +26,39 @@ export class ReminderService {
     @InjectBot() private readonly bot: Telegraf<Context>,
   ) {}
 
+  private async sendMessageWithBackoff(
+    telegramUserId: number,
+    text: string,
+  ): Promise<void> {
+    let attempt = 0;
+    while (true) {
+      try {
+        await this.bot.telegram.sendMessage(telegramUserId, text);
+        return;
+      } catch (e) {
+        const err = e as {
+          response?: {
+            error_code?: number;
+            description?: string;
+            parameters?: { retry_after?: number };
+          };
+        };
+        const retryAfterSec = err.response?.parameters?.retry_after ?? 1;
+        const isRateLimit = err.response?.error_code === 429;
+        if (!isRateLimit || attempt >= MAX_429_RETRIES) {
+          throw e;
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.max(1, retryAfterSec) * 1000),
+        );
+        attempt += 1;
+      }
+    }
+  }
+
   @Cron(CronExpression.EVERY_MINUTE)
   async sendUpcomingReminders(): Promise<void> {
+    const startedAtMs = Date.now();
     const now = Date.now();
     const from = new Date(now + 14 * 60 * 1000);
     const to = new Date(now + 16 * 60 * 1000);
@@ -73,9 +107,22 @@ export class ReminderService {
       const text = `Нагадування: Гра розпочнеться за 15 хвилин! ${place}, початок в ${localTime}`;
       const organizerId = Number(b.userId);
 
+      const participantTargets = b.lookingParticipants
+        .filter((p) => !p.reminderSent)
+        .map((p) => ({
+          participantId: p.id,
+          telegramUserId: Number(p.telegramUserId),
+        }));
+      const batches: Array<
+        Array<{ participantId: string; telegramUserId: number }>
+      > = [];
+      for (let i = 0; i < participantTargets.length; i += REMINDER_SEND_CONCURRENCY) {
+        batches.push(participantTargets.slice(i, i + REMINDER_SEND_CONCURRENCY));
+      }
+
       if (!b.reminderSent) {
         try {
-          await this.bot.telegram.sendMessage(organizerId, text);
+          await this.sendMessageWithBackoff(organizerId, text);
           await this.prisma.booking.update({
             where: { id: b.id },
             data: { reminderSent: true },
@@ -105,48 +152,55 @@ export class ReminderService {
         }
       }
 
-      for (const p of b.lookingParticipants) {
-        if (p.reminderSent) {
-          continue;
-        }
-        const pid = Number(p.telegramUserId);
-        if (pid === organizerId) {
-          await this.prisma.bookingLookingParticipant.update({
-            where: { id: p.id },
-            data: { reminderSent: true },
-          });
-          continue;
-        }
-        try {
-          await this.bot.telegram.sendMessage(pid, text);
-          await this.prisma.bookingLookingParticipant.update({
-            where: { id: p.id },
-            data: { reminderSent: true },
-          });
-          this.logger.log(
-            JSON.stringify({
-              action: 'reminder_sent',
-              bookingId: b.id,
-              role: 'looking_participant',
-              telegramUserId: pid,
-              startTimeUtc: b.startTime.toISOString(),
-            }),
-          );
-        } catch (e) {
-          const err = e as {
-            response?: { error_code?: number; description?: string };
-          };
-          this.logger.warn(
-            JSON.stringify({
-              action: 'reminder_failed',
-              bookingId: b.id,
-              role: 'looking_participant',
-              telegramUserId: pid,
-              error: err?.response?.description ?? String(e),
-            }),
-          );
-        }
+      for (const batch of batches) {
+        await Promise.all(
+          batch.map(async ({ participantId, telegramUserId }) => {
+            if (telegramUserId === organizerId) {
+              await this.prisma.bookingLookingParticipant.update({
+                where: { id: participantId },
+                data: { reminderSent: true },
+              });
+              return;
+            }
+            try {
+              await this.sendMessageWithBackoff(telegramUserId, text);
+              await this.prisma.bookingLookingParticipant.update({
+                where: { id: participantId },
+                data: { reminderSent: true },
+              });
+              this.logger.log(
+                JSON.stringify({
+                  action: 'reminder_sent',
+                  bookingId: b.id,
+                  role: 'looking_participant',
+                  telegramUserId,
+                  startTimeUtc: b.startTime.toISOString(),
+                }),
+              );
+            } catch (e) {
+              const err = e as {
+                response?: { error_code?: number; description?: string };
+              };
+              this.logger.warn(
+                JSON.stringify({
+                  action: 'reminder_failed',
+                  bookingId: b.id,
+                  role: 'looking_participant',
+                  telegramUserId,
+                  error: err?.response?.description ?? String(e),
+                }),
+              );
+            }
+          }),
+        );
       }
     }
+    this.logger.debug(
+      JSON.stringify({
+        action: 'reminder_batch_processed',
+        bookings: bookings.length,
+        elapsedMs: Date.now() - startedAtMs,
+      }),
+    );
   }
 }
