@@ -356,7 +356,7 @@ export class BotUpdate {
 
   /**
    * Reply-меню в группе для конкретного пользователя (например новый участник по chat_member).
-   * «Настройки» — только если этот пользователь админ группы.
+   * «Налаштування» не показываем в группе: оно доступно только в ЛС с ботом.
    */
   private async mainMenuReplyMarkupForChatUser(
     telegram: Context['telegram'],
@@ -364,9 +364,6 @@ export class BotUpdate {
     forUserId: number,
   ) {
     const keys = [MENU_KB_BOOK, MENU_KB_LIST, MENU_KB_GRID, MENU_KB_FREE_SLOTS];
-    if (await isUserAdminOfGroupChat(telegram, chatId, forUserId)) {
-      keys.push(MENU_KB_SETUP);
-    }
     keys.push(MENU_KB_MAIN);
     return Markup.keyboard(kbRowsPaired(keys)).resize().persistent(true);
   }
@@ -397,9 +394,6 @@ export class BotUpdate {
     userId: number,
   ) {
     const rows: string[][] = [[MENU_KB_CHAT_BOT, MENU_KB_FREE_SLOTS]];
-    if (await isUserAdminOfGroupChat(telegram, chatId, userId)) {
-      rows[0].push(MENU_KB_SETUP);
-    }
     return Markup.keyboard(rows).resize().persistent(true);
   }
 
