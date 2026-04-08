@@ -88,6 +88,8 @@ const RULES_ACCEPT_KB = 'Погоджуюся з правилами';
 /** Макс. длина одного сообщения с фрагментом правил (запас под лимит Telegram). */
 const RULES_MESSAGE_CHUNK = 3800;
 const START_RULES_PREFIX = 'rules_';
+const TELEGRAM_SEND_BATCH_SIZE = 6;
+const TELEGRAM_MAX_429_RETRIES = 2;
 
 /** Участнику при закрытом окне бронирования (сразу после «Забронировать» и перед выбором дня). */
 const MSG_NO_SLOTS_BOOKING_WINDOW = 'Наразі бронювання недоступне.';
@@ -634,6 +636,56 @@ export class BotUpdate {
         /* no rights or message already removed */
       });
     }, delayMs);
+  }
+
+  private async sendMessageWithBackoff(
+    telegram: Context['telegram'],
+    chatId: number | string,
+    text: string,
+  ): Promise<void> {
+    let attempt = 0;
+    while (true) {
+      try {
+        await telegram.sendMessage(chatId, text);
+        return;
+      } catch (e) {
+        const err = e as {
+          response?: {
+            error_code?: number;
+            parameters?: { retry_after?: number };
+          };
+        };
+        const retryAfterSec = err.response?.parameters?.retry_after ?? 1;
+        const isRateLimit = err.response?.error_code === 429;
+        if (!isRateLimit || attempt >= TELEGRAM_MAX_429_RETRIES) {
+          throw e;
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.max(1, retryAfterSec) * 1000),
+        );
+        attempt += 1;
+      }
+    }
+  }
+
+  private async sendMessageBatchBestEffort(
+    telegram: Context['telegram'],
+    chatIds: Array<number | string>,
+    text: string,
+    onError: (chatId: number | string, error: unknown) => void,
+  ): Promise<void> {
+    for (let i = 0; i < chatIds.length; i += TELEGRAM_SEND_BATCH_SIZE) {
+      const batch = chatIds.slice(i, i + TELEGRAM_SEND_BATCH_SIZE);
+      await Promise.all(
+        batch.map(async (chatId) => {
+          try {
+            await this.sendMessageWithBackoff(telegram, chatId, text);
+          } catch (e) {
+            onError(chatId, e);
+          }
+        }),
+      );
+    }
   }
 
   private async replyTransientInGroup(
@@ -1800,15 +1852,16 @@ export class BotUpdate {
       sportNameUa: string;
     },
   ) {
-    for (const uid of notify.recipientTelegramIds) {
-      try {
-        await ctx.telegram.sendMessage(uid, notify.cancelNoticeText);
-      } catch (e) {
+    await this.sendMessageBatchBestEffort(
+      ctx.telegram,
+      notify.recipientTelegramIds,
+      notify.cancelNoticeText,
+      (uid, e) => {
         this.logger.warn(
           `booking_cancel_dm failed user=${uid}: ${e instanceof Error ? e.message : String(e)}`,
         );
-      }
-    }
+      },
+    );
     const cDay = formatInTimeZone(
       notify.startTime,
       notify.timeZone,
@@ -3393,15 +3446,16 @@ export class BotUpdate {
   ): Promise<void> {
     const chatIds =
       await this.resources.listTelegramChatIdsForResource(resourceId);
-    for (const gid of chatIds) {
-      try {
-        await ctx.telegram.sendMessage(gid.toString(), text);
-      } catch (e) {
+    await this.sendMessageBatchBestEffort(
+      ctx.telegram,
+      chatIds.map((gid) => gid.toString()),
+      text,
+      (gid, e) => {
         this.logger.warn(
-          `resource_group_broadcast failed chat=${gid.toString()}: ${e instanceof Error ? e.message : String(e)}`,
+          `resource_group_broadcast failed chat=${gid}: ${e instanceof Error ? e.message : String(e)}`,
         );
-      }
-    }
+      },
+    );
   }
 
   private bookingSportLabel(kindCode?: SportKindCode): string {

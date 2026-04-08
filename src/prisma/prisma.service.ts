@@ -10,7 +10,23 @@ export class PrismaService extends PrismaClient implements OnModuleDestroy {
 
   constructor(configService: ConfigService) {
     const connectionString = configService.getOrThrow<string>('DATABASE_URL');
-    const pool = new Pool({ connectionString });
+    const poolMax = Number(configService.get<string>('PG_POOL_MAX') ?? 20);
+    const poolConnectionTimeoutMs = Number(
+      configService.get<string>('PG_POOL_CONNECTION_TIMEOUT_MS') ?? 5000,
+    );
+    const poolIdleTimeoutMs = Number(
+      configService.get<string>('PG_POOL_IDLE_TIMEOUT_MS') ?? 10000,
+    );
+    const pool = new Pool({
+      connectionString,
+      max: Number.isFinite(poolMax) ? poolMax : 20,
+      connectionTimeoutMillis: Number.isFinite(poolConnectionTimeoutMs)
+        ? poolConnectionTimeoutMs
+        : 5000,
+      idleTimeoutMillis: Number.isFinite(poolIdleTimeoutMs)
+        ? poolIdleTimeoutMs
+        : 10000,
+    });
     super({ adapter: new PrismaPg(pool) });
     this.pool = pool;
   }

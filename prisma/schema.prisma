@@ -208,6 +208,9 @@ model Booking {
 
   @@index([resourceId, status])
   @@index([communityResourceId, status])
+  @@index([status, startTime])
+  @@index([status, endTime])
+  @@index([userId, communityResourceId, resourceId, status, startTime])
   @@map("bookings")
 }
 

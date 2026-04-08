@@ -99,6 +99,20 @@ function localDayAnchor(now: Date, dayOffset: number, timeZone: string): Date {
   return addDays(localDayStart, dayOffset);
 }
 
+function isBookingOverlapConstraintError(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    return false;
+  }
+  if (error.code !== 'P2004') {
+    return false;
+  }
+  const target = error.meta?.['target'];
+  return (
+    typeof target === 'string' &&
+    target.includes('bookings_no_overlap_pending_active')
+  );
+}
+
 function atLocalHour(
   localDay: Date,
   hour: number,
@@ -112,6 +126,19 @@ function atLocalHour(
     milliseconds: 0,
   });
   return fromZonedTime(local, timeZone);
+}
+
+function localDayUtcRange(
+  startTimeUtc: Date,
+  timeZone: string,
+): { dayStartUtc: Date; nextDayStartUtc: Date } {
+  const local = toZonedTime(startTimeUtc, timeZone);
+  const localStart = startOfDay(local);
+  const localNext = addDays(localStart, 1);
+  return {
+    dayStartUtc: fromZonedTime(localStart, timeZone),
+    nextDayStartUtc: fromZonedTime(localNext, timeZone),
+  };
 }
 
 @Injectable()
@@ -151,12 +178,17 @@ export class BookingService {
       params.limitTimeZone,
       'yyyy-MM-dd',
     );
+    const { dayStartUtc, nextDayStartUtc } = localDayUtcRange(
+      params.startTimeUtc,
+      params.limitTimeZone,
+    );
     const sameUserBookings = await this.prisma.booking.findMany({
       where: {
         status: { in: DAILY_LIMIT_BOOKING_STATUSES },
         userId: BigInt(params.telegramUserId),
         communityResourceId: params.communityResourceId,
         resourceId: params.resourceId,
+        startTime: { gte: dayStartUtc, lt: nextDayStartUtc },
       },
       select: { startTime: true, endTime: true },
     });
@@ -270,6 +302,7 @@ export class BookingService {
     /** Telegram group admin/creator — outside the booking_window_* window in communities. */
     telegramGroupAdmin?: boolean;
   }): Promise<BookingStartSlot[]> {
+    const startedAtMs = Date.now();
     let ctx: LoadedResourceDayBookings | null = null;
     try {
       ctx = await this.loadResourceDayBookings(params);
@@ -329,6 +362,16 @@ export class BookingService {
       }
     }
     result.sort((a, b) => a.hour - b.hour || a.minute - b.minute);
+    this.logger.debug(
+      JSON.stringify({
+        action: 'booking_available_start_slots_built',
+        resourceId: params.resourceId,
+        telegramChatId: params.telegramChatId.toString(),
+        dayOffset: params.dayOffset,
+        slots: result.length,
+        elapsedMs: Date.now() - startedAtMs,
+      }),
+    );
     return result;
   }
 
@@ -427,6 +470,7 @@ export class BookingService {
     now?: Date;
     telegramGroupAdmin?: boolean;
   }) {
+    const startedAtMs = Date.now();
     if (params.dayOffset !== 0 && params.dayOffset !== 1) {
       throw new Error('Invalid day');
     }
@@ -539,6 +583,7 @@ export class BookingService {
           endTimeUtc: endTime.toISOString(),
           durationMinutes: params.durationMinutes,
           startLocal: formatInTimeZone(startTime, timeZone, 'yyyy-MM-dd HH:mm'),
+          elapsedMs: Date.now() - startedAtMs,
         }),
       );
       return {
@@ -549,8 +594,8 @@ export class BookingService {
         timeZone,
       };
     } catch (e) {
-      if (e instanceof SlotTakenError) {
-        throw e;
+      if (e instanceof SlotTakenError || isBookingOverlapConstraintError(e)) {
+        throw new SlotTakenError();
       }
       throw e;
     }
@@ -675,25 +720,34 @@ export class BookingService {
     now?: Date;
   }) {
     const now = params.now ?? new Date();
-    const rows = await this.prisma.booking.findMany({
+    const resources = await this.prisma.resource.findMany({
+      where: {
+        communityResources: {
+          some: { community: { telegramChatId: params.telegramChatId } },
+        },
+      },
+      select: { id: true, timeZone: true },
+    });
+    if (resources.length === 0) {
+      return [];
+    }
+    const perResourceWindows = resources.map((resource) => {
+      const localNow = toZonedTime(now, resource.timeZone);
+      const targetDay = addDays(startOfDay(localNow), params.dayOffset);
+      const startUtc = fromZonedTime(targetDay, resource.timeZone);
+      const endUtc = fromZonedTime(addDays(targetDay, 1), resource.timeZone);
+      return { resourceId: resource.id, startUtc, endUtc };
+    });
+    return this.prisma.booking.findMany({
       where: {
         status: { in: OCCUPIED_BOOKING_STATUSES },
-        resource: {
-          communityResources: {
-            some: { community: { telegramChatId: params.telegramChatId } },
-          },
-        },
+        OR: perResourceWindows.map((w) => ({
+          resourceId: w.resourceId,
+          startTime: { gte: w.startUtc, lt: w.endUtc },
+        })),
       },
       include: { resource: true, sportKind: true },
       orderBy: { startTime: 'asc' },
-    });
-    return rows.filter((b) => {
-      const tz = b.resource.timeZone;
-      const localNow = toZonedTime(now, tz);
-      const targetDay = addDays(startOfDay(localNow), params.dayOffset);
-      const targetKey = formatInTimeZone(targetDay, tz, 'yyyy-MM-dd');
-      const bookingDayKey = formatInTimeZone(b.startTime, tz, 'yyyy-MM-dd');
-      return bookingDayKey === targetKey;
     });
   }
 
@@ -767,14 +821,31 @@ export class BookingService {
       });
       const previousDmMessageId = prior?.lastDmMessageId ?? null;
 
-      const next = b.requiredPlayers - 1;
-      await tx.booking.update({
-        where: { id: b.id },
+      const dec = await tx.booking.updateMany({
+        where: {
+          id: b.id,
+          status: { in: OCCUPIED_BOOKING_STATUSES },
+          isLookingForPlayers: true,
+          requiredPlayers: { gt: 0 },
+        },
         data: {
-          requiredPlayers: next,
-          isLookingForPlayers: next > 0,
+          requiredPlayers: { decrement: 1 },
         },
       });
+      if (dec.count === 0) {
+        throw new BookingNotFoundError();
+      }
+      const current = await tx.booking.findUniqueOrThrow({
+        where: { id: b.id },
+        select: { requiredPlayers: true },
+      });
+      const remainingPlayers = Math.max(0, current.requiredPlayers);
+      if (remainingPlayers === 0) {
+        await tx.booking.update({
+          where: { id: b.id },
+          data: { isLookingForPlayers: false },
+        });
+      }
       const part = await tx.bookingLookingParticipant.upsert({
         where: {
           bookingId_telegramUserId: {
@@ -796,7 +867,7 @@ export class BookingService {
         include: { resource: true, sportKind: true },
       });
       return {
-        remainingPlayers: next,
+        remainingPlayers,
         yourPeopleCount: part.peopleCount,
         previousDmMessageId,
         dm: {
