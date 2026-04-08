@@ -97,7 +97,58 @@ npm run start:dev
 npm run test
 npm run test:e2e
 npm run test:cov
+npm run smoke:load
+npm run load:db
 ```
+
+`load:db` можна налаштовувати через env:
+
+```bash
+LOAD_SECONDS=300 LOAD_CONCURRENCY=80 LOAD_MIX=50,30,20 npm run load:db
+```
+
+Базові пороги `load:db` (fail якщо порушені):
+- `system_error_rate < 1%`
+- `query p95 < 120ms`
+- `volunteer p95 < 120ms`
+- `noNegativeRequiredPlayers = true`
+- `noActivePendingOverlaps = true` (для тестових рядків поточного прогону)
+
+---
+
+## Prometheus і Grafana
+
+- Метрики доступні за `GET /metrics`.
+- У застосунку є стандартні runtime-метрики і бізнес-метрики бронювання/нагадувань.
+- Готові файли для моніторингу:
+  - `monitoring/prometheus/prometheus.yml`
+  - `monitoring/prometheus/alerts.yml`
+  - `monitoring/grafana/spot-booking-dashboard.json`
+  - `monitoring/grafana/provisioning/*`
+
+Приклад scrape-конфігу:
+
+```yaml
+scrape_configs:
+  - job_name: spot-booking-bot
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['<host>:3000']
+```
+
+- Alert rules: `monitoring/prometheus/alerts.yml`
+- Dashboard template: `monitoring/grafana/spot-booking-dashboard.json` (Import у Grafana)
+
+Швидкий локальний запуск Prometheus + Grafana:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+```
+
+Після запуску:
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3001` (login/password: `admin`/`admin`)
+- Дашборд підтягується автоматично з provisioning у папку `SpotBooking`.
 
 ---
 

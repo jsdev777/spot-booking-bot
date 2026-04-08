@@ -10,6 +10,7 @@ import { formatInTimeZone, fromZonedTime, toZonedTime } from 'date-fns-tz';
 import { BookingStatus, Prisma, SportKindCode } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ResourceService } from '../community/resource.service';
+import { MetricsService } from '../metrics/metrics.service';
 import {
   BookingNotFoundError,
   BookingWindowClosedError,
@@ -99,17 +100,15 @@ function localDayAnchor(now: Date, dayOffset: number, timeZone: string): Date {
   return addDays(localDayStart, dayOffset);
 }
 
-function isBookingOverlapConstraintError(error: unknown): boolean {
+function isBookingOverlapDbError(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
     return false;
   }
-  if (error.code !== 'P2004') {
-    return false;
-  }
-  const target = error.meta?.['target'];
+  const metaText = JSON.stringify(error.meta ?? {});
   return (
-    typeof target === 'string' &&
-    target.includes('bookings_no_overlap_pending_active')
+    (error.code === 'P2004' || error.code === 'P2010') &&
+    (metaText.includes('bookings_no_overlap_pending_active') ||
+      metaText.includes('bookings_overlap_blocked'))
   );
 }
 
@@ -144,11 +143,32 @@ function localDayUtcRange(
 @Injectable()
 export class BookingService {
   private readonly logger = new Logger(BookingService.name);
+  private readonly createGate = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly resources: ResourceService,
+    private readonly metrics: MetricsService,
   ) {}
+
+  private reserveCreateGate(
+    key: string,
+    ttlMs = 500,
+    nowMs = Date.now(),
+  ): boolean {
+    const lockedUntil = this.createGate.get(key);
+    if (lockedUntil != null && lockedUntil > nowMs) {
+      return false;
+    }
+    const expiresAt = nowMs + ttlMs;
+    this.createGate.set(key, expiresAt);
+    setTimeout(() => {
+      if (this.createGate.get(key) === expiresAt) {
+        this.createGate.delete(key);
+      }
+    }, ttlMs);
+    return true;
+  }
 
   /**
    * The `community_resource_user_booking_limits` limit for the day of the week and the calendar start date
@@ -362,6 +382,7 @@ export class BookingService {
       }
     }
     result.sort((a, b) => a.hour - b.hour || a.minute - b.minute);
+    this.metrics.observeBookingSlotsBuildDuration(Date.now() - startedAtMs);
     this.logger.debug(
       JSON.stringify({
         action: 'booking_available_start_slots_built',
@@ -542,6 +563,13 @@ export class BookingService {
     if (looking && (requiredPlayers < 1 || requiredPlayers > 50)) {
       throw new Error('requiredPlayers must be 1–50 when isLookingForPlayers');
     }
+    const gateKey = `${params.resourceId}:${startTime.toISOString()}`;
+    if (!this.reserveCreateGate(gateKey)) {
+      this.metrics.incBookingCreateConflict();
+      this.metrics.incBookingCreate('conflict');
+      this.metrics.observeBookingCreateDuration(Date.now() - startedAtMs);
+      throw new SlotTakenError();
+    }
 
     try {
       const booking = await this.prisma.$transaction(async (tx) => {
@@ -586,6 +614,8 @@ export class BookingService {
           elapsedMs: Date.now() - startedAtMs,
         }),
       );
+      this.metrics.incBookingCreate('success');
+      this.metrics.observeBookingCreateDuration(Date.now() - startedAtMs);
       return {
         resourceId: res.id,
         startTime,
@@ -594,9 +624,15 @@ export class BookingService {
         timeZone,
       };
     } catch (e) {
-      if (e instanceof SlotTakenError || isBookingOverlapConstraintError(e)) {
+      if (e instanceof SlotTakenError || isBookingOverlapDbError(e)) {
+        this.metrics.incBookingCreateConflict();
+        this.metrics.incBookingCreate('conflict');
+        this.metrics.observeBookingCreateDuration(Date.now() - startedAtMs);
         throw new SlotTakenError();
       }
+      this.metrics.incBookingCreateSystemError();
+      this.metrics.incBookingCreate('error');
+      this.metrics.observeBookingCreateDuration(Date.now() - startedAtMs);
       throw e;
     }
   }

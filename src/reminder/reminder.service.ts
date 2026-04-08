@@ -4,6 +4,7 @@ import { formatInTimeZone } from 'date-fns-tz';
 import { InjectBot } from 'nestjs-telegraf';
 import { Context, Telegraf } from 'telegraf';
 import { BookingStatus, Prisma } from '@prisma/client';
+import { MetricsService } from '../metrics/metrics.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 const REMINDER_SEND_CONCURRENCY = 6;
@@ -24,6 +25,7 @@ export class ReminderService {
   constructor(
     private readonly prisma: PrismaService,
     @InjectBot() private readonly bot: Telegraf<Context>,
+    private readonly metrics: MetricsService,
   ) {}
 
   private async sendMessageWithBackoff(
@@ -34,6 +36,7 @@ export class ReminderService {
     while (true) {
       try {
         await this.bot.telegram.sendMessage(telegramUserId, text);
+        this.metrics.incTelegramSend('success', 'reminder');
         return;
       } catch (e) {
         const err = e as {
@@ -46,8 +49,10 @@ export class ReminderService {
         const retryAfterSec = err.response?.parameters?.retry_after ?? 1;
         const isRateLimit = err.response?.error_code === 429;
         if (!isRateLimit || attempt >= MAX_429_RETRIES) {
+          this.metrics.incTelegramSend('error', 'reminder');
           throw e;
         }
+        this.metrics.incTelegramRetry('reminder');
         await new Promise((resolve) =>
           setTimeout(resolve, Math.max(1, retryAfterSec) * 1000),
         );
@@ -202,5 +207,6 @@ export class ReminderService {
         elapsedMs: Date.now() - startedAtMs,
       }),
     );
+    this.metrics.observeReminderBatchDuration(Date.now() - startedAtMs);
   }
 }

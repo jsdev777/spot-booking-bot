@@ -1,0 +1,47 @@
+groups:
+  - name: spot-booking-bot
+    rules:
+      - alert: SpotBookingSystemErrorsHigh
+        expr: rate(spot_booking_booking_create_system_error_total[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Booking create system errors are elevated"
+          description: "System-level booking create errors are above expected baseline."
+
+      - alert: SpotBookingTelegramRetriesHigh
+        expr: rate(spot_booking_telegram_send_retry_total[5m]) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Telegram retries increased"
+          description: "Telegram send retry rate indicates possible API throttling."
+
+      - alert: SpotBookingCreateP95High
+        expr: histogram_quantile(0.95, sum(rate(spot_booking_booking_create_duration_ms_bucket[5m])) by (le)) > 0.12
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Booking create latency p95 is high"
+          description: "Booking create p95 exceeded 120ms for 10 minutes."
+
+      - alert: SpotBookingSlotsBuildP95High
+        expr: histogram_quantile(0.95, sum(rate(spot_booking_booking_slots_build_duration_ms_bucket[5m])) by (le)) > 0.12
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slots build latency p95 is high"
+          description: "Slots build p95 exceeded 120ms for 10 minutes."
+
+      - alert: SpotBookingReminderBatchP95High
+        expr: histogram_quantile(0.95, sum(rate(spot_booking_reminder_batch_duration_ms_bucket[5m])) by (le)) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Reminder batch duration p95 is high"
+          description: "Reminder batch p95 exceeded 2s for 10 minutes."
