@@ -356,17 +356,10 @@ export class BotUpdate {
 
   /**
    * Reply-меню в группе для конкретного пользователя (например новый участник по chat_member).
-   * «Настройки» — только если этот пользователь админ группы.
+   * «Налаштування» не показываем в группе: оно доступно только в ЛС с ботом.
    */
-  private async mainMenuReplyMarkupForChatUser(
-    telegram: Context['telegram'],
-    chatId: bigint,
-    forUserId: number,
-  ) {
+  private mainMenuReplyMarkupForChatUser() {
     const keys = [MENU_KB_BOOK, MENU_KB_LIST, MENU_KB_GRID, MENU_KB_FREE_SLOTS];
-    if (await isUserAdminOfGroupChat(telegram, chatId, forUserId)) {
-      keys.push(MENU_KB_SETUP);
-    }
     keys.push(MENU_KB_MAIN);
     return Markup.keyboard(kbRowsPaired(keys)).resize().persistent(true);
   }
@@ -391,15 +384,8 @@ export class BotUpdate {
     return Markup.keyboard(kbRowsPaired(keys)).resize().persistent(true);
   }
 
-  private async groupEntryReplyMarkupForChatUser(
-    telegram: Context['telegram'],
-    chatId: bigint,
-    userId: number,
-  ) {
+  private groupEntryReplyMarkupForChatUser() {
     const rows: string[][] = [[MENU_KB_CHAT_BOT, MENU_KB_FREE_SLOTS]];
-    if (await isUserAdminOfGroupChat(telegram, chatId, userId)) {
-      rows[0].push(MENU_KB_SETUP);
-    }
     return Markup.keyboard(rows).resize().persistent(true);
   }
 
@@ -408,11 +394,7 @@ export class BotUpdate {
       return this.mainMenuReplyMarkupForDmUser(ctx.telegram, ctx.from.id);
     }
     if (isGroupChat(ctx) && ctx.from) {
-      return this.groupEntryReplyMarkupForChatUser(
-        ctx.telegram,
-        BigInt(ctx.chat!.id),
-        ctx.from.id,
-      );
+      return this.groupEntryReplyMarkupForChatUser();
     }
     return Markup.keyboard([[MENU_KB_CHAT_BOT]])
       .resize()
@@ -4857,11 +4839,7 @@ export class BotUpdate {
           ? 'Ласкаво просимо!\n\nНатисніть «Чат Бот», щоб працювати з меню в особистих повідомленнях.'
           : 'Ласкаво просимо!\n\nМайданчик ще не налаштований. Адміністратору: команда /setup.';
         try {
-          const kb = await this.groupEntryReplyMarkupForChatUser(
-            ctx.telegram,
-            chatId,
-            u.id,
-          );
+          const kb = this.groupEntryReplyMarkupForChatUser();
           await ctx.telegram.sendMessage(chat.id, text, kb);
         } catch (e) {
           this.logger.warn(
