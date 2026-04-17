@@ -54,26 +54,31 @@ model Community {
   communityResources     CommunityResource[]
   userBookingLimits      CommunityUserBookingLimit[]
   groupMemberships       GroupChatMembership[]
-  rules                  CommunityRules?
+  rules                  CommunityRules[]
 
   @@map("communities")
 }
 
-/// Community Rules (one text per community). Until they are approved, we do not assign the member to the community in group_chat_memberships
+/// Community rules text per language. Until rules are approved, we do not assign the member to the community in group_chat_memberships
 model CommunityRules {
-  communityId String    @id @map("community_id")
+  communityId String    @map("community_id")
+  languageId  String    @map("language_id")
   community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  language    Language  @relation(fields: [languageId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   text        String    @db.Text
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
 
+  @@id([communityId, languageId])
+  @@index([languageId])
   @@map("community_rules")
 }
 
 /// Interface/message language (i18n code, e.g., ISO 639-1)
 model Language {
-  id          String                @id
-  nameNative  String                @map("name_native")
-  memberships GroupChatMembership[]
+  id             String                @id
+  nameNative     String                @map("name_native")
+  memberships    GroupChatMembership[]
+  communityRules CommunityRules[]
 
   @@map("languages")
 }

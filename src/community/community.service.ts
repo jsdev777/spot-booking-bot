@@ -62,6 +62,32 @@ async function seedCommunityResourceUserBookingLimits(
   });
 }
 
+/**
+ * Picks non-empty community rules text: preferred language, then Ukrainian, then any.
+ */
+export function resolveCommunityRulesText(
+  rules: readonly { languageId: string; text: string }[],
+  preferredLanguageId: string | null | undefined,
+): string | null {
+  const nonempty = rules
+    .map((r) => ({ languageId: r.languageId, body: r.text.trim() }))
+    .filter((r) => r.body.length > 0);
+  if (nonempty.length === 0) {
+    return null;
+  }
+  if (preferredLanguageId) {
+    const exact = nonempty.find((r) => r.languageId === preferredLanguageId);
+    if (exact) {
+      return exact.body;
+    }
+  }
+  const ua = nonempty.find((r) => r.languageId === 'ua');
+  if (ua) {
+    return ua.body;
+  }
+  return nonempty[0]!.body;
+}
+
 @Injectable()
 export class CommunityService {
   constructor(private readonly prisma: PrismaService) {}
@@ -531,6 +557,7 @@ export class CommunityService {
 
   async getCommunityRulesForChat(
     telegramChatId: bigint,
+    preferredLanguageId?: string | null,
   ): Promise<string | null> {
     const comm = await this.prisma.community.findUnique({
       where: { telegramChatId },
@@ -539,13 +566,14 @@ export class CommunityService {
     if (!comm) {
       return null;
     }
-    const txt = comm.rules?.text?.trim() ?? '';
-    return txt.length > 0 ? txt : null;
+    return resolveCommunityRulesText(comm.rules, preferredLanguageId ?? null);
   }
 
   async upsertCommunityRulesForChat(params: {
     telegramChatId: bigint;
     text: string;
+    /** Defaults to Ukrainian for backward compatibility with the admin setup flow. */
+    languageId?: string;
   }) {
     const comm = await this.prisma.community.findUnique({
       where: { telegramChatId: params.telegramChatId },
@@ -554,10 +582,20 @@ export class CommunityService {
     if (!comm) {
       throw new Error('Community not found');
     }
+    const languageId = params.languageId ?? 'ua';
     return this.prisma.communityRules.upsert({
-      where: { communityId: comm.id },
+      where: {
+        communityId_languageId: {
+          communityId: comm.id,
+          languageId,
+        },
+      },
       update: { text: params.text },
-      create: { communityId: comm.id, text: params.text },
+      create: {
+        communityId: comm.id,
+        languageId,
+        text: params.text,
+      },
     });
   }
 }

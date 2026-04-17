@@ -158,6 +158,7 @@ interface SetupDraft {
     | 'hub'
     | 'list'
     | 'link_pick'
+    | 'rules_lang_pick'
     | 'rules_edit'
     | 'all_bookings_pick_day'
     | 'all_bookings_list'
@@ -177,6 +178,9 @@ interface SetupDraft {
   postTzVisibilityOnly?: boolean;
   /** Крок 1: очікуємо підтвердження видалення майданчика. */
   setupResourceDeleteConfirm?: boolean;
+  /** Chosen language for community rules editing flow. */
+  rulesLanguageIdDraft?: string;
+  rulesLanguageNameDraft?: string;
 }
 
 interface WhPerDayEditDraft {
@@ -499,6 +503,13 @@ export class BotUpdate {
       return;
     }
     const groupChatId = BigInt(ctx.chat.id);
+    if (!(await this.ensureParticipantGroupOnboarding(ctx, groupChatId))) {
+      await this.replyTransientInGroup(
+        ctx,
+        'Спочатку оберіть мову та прийміть правила спільноти (кнопки в ЛС або в групі) / First choose your language and accept the community rules (buttons in DM or in the group).',
+      );
+      return;
+    }
     this.activeGroupByUser.set(ctx.from.id, groupChatId);
     this.groupPickerLabelsByUser.delete(ctx.from.id);
     this.resetMenuStateForGroup(groupChatId, ctx.from.id);
@@ -526,6 +537,13 @@ export class BotUpdate {
       return;
     }
     const groupChatId = BigInt(ctx.chat.id);
+    if (!(await this.ensureParticipantGroupOnboarding(ctx, groupChatId))) {
+      await this.replyTransientInGroup(
+        ctx,
+        'Спочатку оберіть мову та прийміть правила спільноти (кнопки в ЛС або в групі) / First choose your language and accept the community rules (buttons in DM or in the group).',
+      );
+      return;
+    }
     this.activeGroupByUser.set(ctx.from.id, groupChatId);
     this.groupPickerLabelsByUser.delete(ctx.from.id);
     this.resetMenuStateForGroup(groupChatId, ctx.from.id);
@@ -1192,63 +1210,17 @@ export class BotUpdate {
 
     const isAdminInGroup = await this.isAdminInContextGroup(ctx, chatId);
     if (!isAdminInGroup) {
-      const joinResult = await this.telegramMembers.recordJoin({
-        telegramChatId: chatId,
-        telegramUserId: ctx.from!.id,
-        username: ctx.from!.username,
-        firstName: ctx.from!.first_name,
-        lastName: ctx.from!.last_name,
-      });
-      if (joinResult.pendingGroupRules && joinResult.rulesText) {
-        try {
-          await this.sendCommunityRulesMessages(
-            ctx.telegram,
-            chatId,
-            ctx.from!.id,
-            joinResult.rulesText,
-            { allowGroupFallback: true },
-          );
-        } catch (e) {
-          this.logger.warn(
-            `rules send after join-sync failed user=${ctx.from!.id}: ${e instanceof Error ? e.message : String(e)}`,
-          );
-        }
-      }
-      if (
-        await this.telegramMembers.participantMustAcceptGroupRules({
-          telegramChatId: chatId,
-          telegramUserId: ctx.from!.id,
-        })
-      ) {
-        if (
-          text === MENU_KB_BOOK ||
-          text === MENU_KB_LIST ||
-          text === MENU_KB_GRID ||
-          text === MENU_KB_FREE_SLOTS
-        ) {
-          const rulesText =
-            await this.telegramMembers.getGroupRulesText(chatId);
-          if (rulesText) {
-            try {
-              await this.sendCommunityRulesMessages(
-                ctx.telegram,
-                chatId,
-                ctx.from!.id,
-                rulesText,
-                { allowGroupFallback: true },
-              );
-            } catch (e) {
-              this.logger.warn(
-                `rules resend failed user=${ctx.from!.id}: ${e instanceof Error ? e.message : String(e)}`,
-              );
-            }
-          }
-          await ctx.reply(
-            'Спочатку прийміть правила спільноти — натисніть кнопку «Приймаю правила» у приватних повідомленнях з ботом (або у групі, якщо правила надійшли туди).',
-            await this.mainMenuReplyMarkup(ctx),
-          );
-          return;
-        }
+      const canProceed = await this.ensureParticipantGroupOnboarding(
+        ctx,
+        chatId,
+      );
+      if (!canProceed) {
+        await ctx.reply(
+          'Спочатку оберіть мову та прийміть правила спільноти в діалозі з ботом (кнопки надіслано в ЛС або в групі).\n\n' +
+            'First choose your language and accept the community rules in the bot chat (buttons were sent in DM or in the group).',
+          await this.mainMenuReplyMarkup(ctx),
+        );
+        return;
       }
     }
 
@@ -2845,6 +2817,18 @@ export class BotUpdate {
       .persistent(true);
   }
 
+  private setupRulesLanguageReplyMarkup(
+    langs: { id: string; nameNative: string }[],
+  ) {
+    const labels = langs.map(
+      (l, i) => `${i + 1}. ${l.nameNative} (${l.id})`.slice(0, 64),
+    );
+    const rows = kbRowsPaired(labels);
+    rows.push([MENU_KB_BACK, MENU_KB_MAIN]);
+    rows.push([SETUP_KB_CANCEL]);
+    return Markup.keyboard(rows).resize().persistent(true);
+  }
+
   private setupHubButtonsHintText(): string {
     return `«${SETUP_KB_VENUES}» — майданчики, «${SETUP_KB_GROUP_RULES}» — текст правил для нових учасників, «${SETUP_KB_ALL_BOOKINGS}» — перегляд бронювань у групі, «${SETUP_KB_LINK_EXISTING_RESOURCE}» — привʼязати вже існуючий майданчик, «${SETUP_KB_BOOKING_WINDOW}» — коли учасники можуть бронювати, «${SETUP_KB_BOOKING_LIMIT}» — ліміт годин на одного користувача за днями тижня.`;
   }
@@ -3604,13 +3588,10 @@ export class BotUpdate {
       this.setupDrafts.delete(sk);
       this.setupBridgeGroupByUser.delete(ctx.from!.id);
       this.resetMenuStateForGroup(targetGroupChatId, ctx.from!.id);
-      const uid = ctx.from!.id;
-      // Спочатку зняти reply-клавіатуру — інакше деякі клієнти не підміняють велике меню /setup.
-      await ctx.telegram.sendMessage(uid, '\u2060', Markup.removeKeyboard());
       await this.replyWithMainMenuInDmForGroup(
         ctx,
         targetGroupChatId,
-        '\u2060',
+        'Налаштування скасовано. Головне меню:',
       );
     };
 
@@ -3623,9 +3604,11 @@ export class BotUpdate {
 
     switch (draft.step) {
       case 0: {
-        if (draft.venuesSubstep === 'rules_edit') {
+        if (draft.venuesSubstep === 'rules_lang_pick') {
           if (text === MENU_KB_MAIN) {
             draft.venuesSubstep = 'hub';
+            delete draft.rulesLanguageIdDraft;
+            delete draft.rulesLanguageNameDraft;
             this.setupDrafts.set(sk, draft);
             await this.sendSetupDm(
               ctx,
@@ -3636,11 +3619,77 @@ export class BotUpdate {
           }
           if (text === MENU_KB_BACK) {
             draft.venuesSubstep = 'hub';
+            delete draft.rulesLanguageIdDraft;
+            delete draft.rulesLanguageNameDraft;
             this.setupDrafts.set(sk, draft);
             await this.sendSetupDm(
               ctx,
               this.setupHubPromptText(chatTitle),
               this.setupVenuesHubReplyMarkup(),
+            );
+            return;
+          }
+          const langs = await this.telegramMembers.listLanguagesForPicker();
+          const m = text.match(/^(\d+)\.\s/);
+          if (!m) {
+            await this.sendSetupDm(
+              ctx,
+              `Оберіть номер мови зі списку або натисніть «${MENU_KB_BACK}».`,
+              this.setupRulesLanguageReplyMarkup(langs),
+            );
+            return;
+          }
+          const idx = Number(m[1]) - 1;
+          const lang = langs[idx];
+          if (!lang) {
+            await this.sendSetupDm(
+              ctx,
+              `Оберіть номер мови зі списку або натисніть «${MENU_KB_BACK}».`,
+              this.setupRulesLanguageReplyMarkup(langs),
+            );
+            return;
+          }
+          const currentRules = await this.community.getCommunityRulesForChat(
+            targetGroupChatId,
+            lang.id,
+          );
+          draft.venuesSubstep = 'rules_edit';
+          draft.rulesLanguageIdDraft = lang.id;
+          draft.rulesLanguageNameDraft = lang.nameNative;
+          this.setupDrafts.set(sk, draft);
+          await this.sendSetupDm(
+            ctx,
+            currentRules
+              ? `Мова правил: ${lang.nameNative} (${lang.id}).\n\nПоточні правила:\n\n${currentRules}\n\nНадішліть новий текст одним повідомленням, щоб замінити правила.`
+              : `Мова правил: ${lang.nameNative} (${lang.id}).\n\nПравила для цієї мови ще не задані.\n\nНадішліть текст правил одним повідомленням, щоб створити їх.`,
+            Markup.keyboard([[MENU_KB_BACK, MENU_KB_MAIN], [SETUP_KB_CANCEL]])
+              .resize()
+              .persistent(true),
+          );
+          return;
+        }
+
+        if (draft.venuesSubstep === 'rules_edit') {
+          if (text === MENU_KB_MAIN) {
+            draft.venuesSubstep = 'hub';
+            delete draft.rulesLanguageIdDraft;
+            delete draft.rulesLanguageNameDraft;
+            this.setupDrafts.set(sk, draft);
+            await this.sendSetupDm(
+              ctx,
+              this.setupHubPromptText(chatTitle),
+              this.setupVenuesHubReplyMarkup(),
+            );
+            return;
+          }
+          if (text === MENU_KB_BACK) {
+            draft.venuesSubstep = 'rules_lang_pick';
+            this.setupDrafts.set(sk, draft);
+            const langs = await this.telegramMembers.listLanguagesForPicker();
+            await this.sendSetupDm(
+              ctx,
+              'Оберіть мову, для якої редагувати правила:',
+              this.setupRulesLanguageReplyMarkup(langs),
             );
             return;
           }
@@ -3663,6 +3712,7 @@ export class BotUpdate {
             await this.community.upsertCommunityRulesForChat({
               telegramChatId: targetGroupChatId,
               text: rulesText,
+              languageId: draft.rulesLanguageIdDraft ?? 'ua',
             });
           } catch (e) {
             this.logger.error(e instanceof Error ? e.message : e);
@@ -3676,7 +3726,7 @@ export class BotUpdate {
           this.setupDrafts.set(sk, draft);
           await this.sendSetupDm(
             ctx,
-            'Правила групи збережено.',
+            `Правила групи збережено (${draft.rulesLanguageNameDraft ?? draft.rulesLanguageIdDraft ?? 'ua'}).`,
             this.setupVenuesHubReplyMarkup(),
           );
           return;
@@ -3887,18 +3937,22 @@ export class BotUpdate {
             return;
           }
           if (text === SETUP_KB_GROUP_RULES) {
-            const currentRules =
-              await this.community.getCommunityRulesForChat(targetGroupChatId);
-            draft.venuesSubstep = 'rules_edit';
+            const langs = await this.telegramMembers.listLanguagesForPicker();
+            if (langs.length === 0) {
+              await this.sendSetupDm(
+                ctx,
+                'Не знайдено доступних мов. Додайте мови до таблиці languages.',
+              );
+              return;
+            }
+            draft.venuesSubstep = 'rules_lang_pick';
+            delete draft.rulesLanguageIdDraft;
+            delete draft.rulesLanguageNameDraft;
             this.setupDrafts.set(sk, draft);
             await this.sendSetupDm(
               ctx,
-              currentRules
-                ? `Поточні правила групи:\n\n${currentRules}\n\nНадішліть новий текст одним повідомленням, щоб замінити правила.`
-                : 'Правила групи ще не задані.\n\nНадішліть текст правил одним повідомленням, щоб створити їх.',
-              Markup.keyboard([[MENU_KB_BACK, MENU_KB_MAIN], [SETUP_KB_CANCEL]])
-                .resize()
-                .persistent(true),
+              'Оберіть мову, для якої хочете створити або змінити правила:',
+              this.setupRulesLanguageReplyMarkup(langs),
             );
             return;
           }
@@ -4690,20 +4744,35 @@ export class BotUpdate {
     }
   }
 
+  private rulesWelcomeIntro(languageId: string | null | undefined): string {
+    if (languageId === 'en') {
+      return (
+        'Welcome! Please read the community rules before you start.\n\n' +
+        'After reading, tap the accept button below the last message.\n\n—\n\n'
+      );
+    }
+    return (
+      'Ласкаво просимо! Перед початком ознайомтеся з правилами спільноти.\n\n' +
+      'Після прочитання натисніть «Погоджуюсь з правилами» під останнім повідомленням.\n\n—\n\n'
+    );
+  }
+
   /**
-   * Правила в ЛС; если не выходит (нет /start, бот заблокирован) — в группу.
-   * В callback передаём groupChatId, чтобы кнопка работала из лички.
+   * Rules in DM; if that fails (no /start, bot blocked) — to the group.
+   * Callback includes groupChatId so the button works from private chat.
    */
   private async sendCommunityRulesMessages(
     telegram: Context['telegram'],
     groupChatId: bigint,
     targetUserId: number,
     rulesText: string,
-    opts?: { allowGroupFallback?: boolean },
+    opts?: {
+      allowGroupFallback?: boolean;
+      /** Membership language used for the intro text only. */
+      rulesLocaleLanguageId?: string | null;
+    },
   ): Promise<{ usedDm: boolean }> {
-    const intro =
-      'Ласкаво просимо! Перед початком ознайомтеся з правилами спільноти.\n\n' +
-      'Після прочитання натисніть «Погоджуюсь з правилами» під останнім повідомленням.\n\n—\n\n';
+    const intro = this.rulesWelcomeIntro(opts?.rulesLocaleLanguageId);
     const full = `${intro}${rulesText}`;
     const chunks: string[] = [];
     for (let i = 0; i < full.length; i += RULES_MESSAGE_CHUNK) {
@@ -4757,6 +4826,141 @@ export class BotUpdate {
     }
   }
 
+  /**
+   * Language picker in DM first; fallback sends the same inline keyboard in the group.
+   */
+  private async sendLanguagePickerMessages(
+    telegram: Context['telegram'],
+    groupChatId: bigint,
+    targetUserId: number,
+    opts?: { allowGroupFallback?: boolean },
+  ): Promise<{ usedDm: boolean }> {
+    const langs = await this.telegramMembers.listLanguagesForPicker();
+    const groupStr = groupChatId.toString();
+    const rows = langs.map((l) => [
+      {
+        text: l.nameNative,
+        callback_data: `lang:${targetUserId}:${groupStr}:${l.id}`,
+      },
+    ]);
+    const intro =
+      'Choose your preferred language / Оберіть бажану мову:';
+    const extra = {
+      reply_markup: { inline_keyboard: rows },
+    };
+    try {
+      await telegram.sendMessage(targetUserId, intro, extra);
+      return { usedDm: true };
+    } catch (e) {
+      if (opts?.allowGroupFallback === false) {
+        throw e;
+      }
+      this.logger.warn(
+        `language picker DM failed user=${targetUserId}, fallback to group: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      await telegram.sendMessage(Number(groupChatId), intro, extra);
+      return { usedDm: false };
+    }
+  }
+
+  /**
+   * For non-admins: sync join, then require language (in community chats) and rules before menu actions.
+   * @returns true if the user may continue; false if onboarding messages were sent / user must finish first.
+   */
+  private async ensureParticipantGroupOnboarding(
+    ctx: Context,
+    groupChatId: bigint,
+  ): Promise<boolean> {
+    if (!ctx.from) {
+      return true;
+    }
+    if (
+      await isUserAdminOfGroupChat(ctx.telegram, groupChatId, ctx.from.id)
+    ) {
+      return true;
+    }
+    const joinResult = await this.telegramMembers.recordJoin({
+      telegramChatId: groupChatId,
+      telegramUserId: ctx.from.id,
+      username: ctx.from.username,
+      firstName: ctx.from.first_name,
+      lastName: ctx.from.last_name,
+    });
+    if (joinResult.pendingLanguageSelection) {
+      try {
+        await this.sendLanguagePickerMessages(
+          ctx.telegram,
+          groupChatId,
+          ctx.from.id,
+          { allowGroupFallback: true },
+        );
+      } catch (e) {
+        this.logger.warn(
+          `language picker: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+      return false;
+    }
+    if (joinResult.pendingGroupRules && joinResult.rulesText) {
+      try {
+        const localeId = await this.telegramMembers.getMembershipLanguageId({
+          telegramChatId: groupChatId,
+          telegramUserId: ctx.from.id,
+        });
+        await this.sendCommunityRulesMessages(
+          ctx.telegram,
+          groupChatId,
+          ctx.from.id,
+          joinResult.rulesText,
+          {
+            allowGroupFallback: true,
+            rulesLocaleLanguageId: localeId,
+          },
+        );
+      } catch (e) {
+        this.logger.warn(
+          `rules send in onboarding gate: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+      return false;
+    }
+    if (
+      await this.telegramMembers.participantMustAcceptGroupRules({
+        telegramChatId: groupChatId,
+        telegramUserId: ctx.from.id,
+      })
+    ) {
+      const rulesText = await this.telegramMembers.getGroupRulesText(
+        groupChatId,
+        ctx.from.id,
+      );
+      if (rulesText) {
+        try {
+          const localeId = await this.telegramMembers.getMembershipLanguageId({
+            telegramChatId: groupChatId,
+            telegramUserId: ctx.from.id,
+          });
+          await this.sendCommunityRulesMessages(
+            ctx.telegram,
+            groupChatId,
+            ctx.from.id,
+            rulesText,
+            {
+              allowGroupFallback: true,
+              rulesLocaleLanguageId: localeId,
+            },
+          );
+        } catch (e) {
+          this.logger.warn(
+            `rules resend in onboarding gate: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        }
+      }
+      return false;
+    }
+    return true;
+  }
+
   @On('chat_member')
   async onChatMember(@Ctx() ctx: Context) {
     const up = ctx.chatMember;
@@ -4795,14 +4999,55 @@ export class BotUpdate {
       });
 
       if (!wasIn) {
+        if (joinResult.pendingLanguageSelection) {
+          try {
+            const { usedDm } = await this.sendLanguagePickerMessages(
+              ctx.telegram,
+              chatId,
+              u.id,
+              { allowGroupFallback: true },
+            );
+            if (usedDm) {
+              try {
+                const sent = await ctx.telegram.sendMessage(
+                  chat.id,
+                  'Оберіть мову в приватному повідомленні від бота / Choose language in the bot DM.',
+                );
+                this.deleteMessageLater(
+                  ctx.telegram,
+                  Number(chat.id),
+                  sent.message_id,
+                  5000,
+                );
+              } catch (e) {
+                this.logger.warn(
+                  `chat_member language ping: ${e instanceof Error ? e.message : String(e)}`,
+                );
+              }
+            }
+          } catch (e) {
+            this.logger.warn(
+              `chat_member language picker: ${e instanceof Error ? e.message : String(e)}`,
+            );
+          }
+          return;
+        }
+
         if (joinResult.pendingGroupRules && joinResult.rulesText) {
           try {
+            const localeId = await this.telegramMembers.getMembershipLanguageId({
+              telegramChatId: chatId,
+              telegramUserId: u.id,
+            });
             const { usedDm } = await this.sendCommunityRulesMessages(
               ctx.telegram,
               chatId,
               u.id,
               joinResult.rulesText,
-              { allowGroupFallback: true },
+              {
+                allowGroupFallback: true,
+                rulesLocaleLanguageId: localeId,
+              },
             );
             if (usedDm) {
               try {
@@ -4901,12 +5146,18 @@ export class BotUpdate {
               /* message already deleted or no rights */
             }
           }
-          const rulesText =
-            await this.telegramMembers.getGroupRulesText(groupChatId);
+          const rulesText = await this.telegramMembers.getGroupRulesText(
+            groupChatId,
+            ctx.from.id,
+          );
           if (!rulesText) {
             await ctx.reply('Правила для цієї групи не знайдені.');
             return;
           }
+          const localeId = await this.telegramMembers.getMembershipLanguageId({
+            telegramChatId: groupChatId,
+            telegramUserId: ctx.from.id,
+          });
           this.activeGroupByUser.set(ctx.from.id, groupChatId);
           try {
             await this.sendCommunityRulesMessages(
@@ -4914,7 +5165,10 @@ export class BotUpdate {
               groupChatId,
               ctx.from.id,
               rulesText,
-              { allowGroupFallback: false },
+              {
+                allowGroupFallback: false,
+                rulesLocaleLanguageId: localeId,
+              },
             );
           } catch {
             await ctx.reply(
@@ -5093,6 +5347,107 @@ export class BotUpdate {
       await this.replyTransientInGroup(
         ctx,
         'Не вдалося написати вам у приватних повідомленнях. Відкрийте діалог із ботом і натисніть Start, а потім знову виконайте команду /setup у групі або натисніть «Налаштування».',
+      );
+    }
+  }
+
+  /** lang:userId:groupChatId:languageId — pick UI language for this group membership. */
+  @Action(/^lang:(\d+):(-?\d+):([\w-]+)$/)
+  async onPickGroupLanguage(@Ctx() ctx: Context) {
+    const q = ctx.callbackQuery;
+    if (!q || !('data' in q) || typeof q.data !== 'string' || !ctx.from) {
+      return;
+    }
+    const mm = /^lang:(\d+):(-?\d+):([\w-]+)$/.exec(q.data);
+    if (!mm) {
+      return;
+    }
+    const expectedUserId = Number(mm[1]);
+    const groupChatId = BigInt(mm[2]);
+    const languageId = mm[3]!;
+    if (ctx.from.id !== expectedUserId) {
+      await ctx.answerCbQuery('Ця кнопка призначена не для вас.', {
+        show_alert: true,
+      });
+      return;
+    }
+    try {
+      const member = await ctx.telegram.getChatMember(
+        groupChatId.toString(),
+        ctx.from.id,
+      );
+      if (!TelegramMembersService.isStatusInChat(member.status)) {
+        await ctx.answerCbQuery('Ви не є учасником цієї групи.', {
+          show_alert: true,
+        });
+        return;
+      }
+    } catch {
+      await ctx.answerCbQuery('Група недоступна або вас немає в групі.', {
+        show_alert: true,
+      });
+      return;
+    }
+    const saved = await this.telegramMembers.setMembershipLanguage({
+      telegramChatId: groupChatId,
+      telegramUserId: ctx.from.id,
+      languageId,
+    });
+    if (!saved.ok) {
+      await ctx.answerCbQuery('Не вдалося зберегти мову.', {
+        show_alert: true,
+      });
+      return;
+    }
+    await ctx.answerCbQuery();
+    try {
+      await ctx.editMessageText('✅ Language saved. / Мову збережено.');
+    } catch {
+      /* not a text message or already edited */
+    }
+
+    const joinResult = await this.telegramMembers.recordJoin({
+      telegramChatId: groupChatId,
+      telegramUserId: ctx.from.id,
+      username: ctx.from.username,
+      firstName: ctx.from.first_name,
+      lastName: ctx.from.last_name,
+    });
+
+    if (joinResult.pendingGroupRules && joinResult.rulesText) {
+      try {
+        await this.sendCommunityRulesMessages(
+          ctx.telegram,
+          groupChatId,
+          ctx.from.id,
+          joinResult.rulesText,
+          {
+            allowGroupFallback: true,
+            rulesLocaleLanguageId: languageId,
+          },
+        );
+      } catch (e) {
+        this.logger.warn(
+          `after language pick, rules send: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+      return;
+    }
+
+    const comm = await this.community.findByTelegramChatId(groupChatId);
+    const ready = comm && comm.resources.length > 0;
+    if (ready) {
+      this.resetMenuStateForGroup(groupChatId, ctx.from.id);
+    }
+    const welcomeText = ready
+      ? 'Ласкаво просимо!\n\nНатисніть «Чат Бот», щоб працювати з меню в особистих повідомленнях.'
+      : 'Ласкаво просимо!\n\nМайданчик ще не налаштований. Адміністратору: команда /setup.';
+    try {
+      const kb = this.groupEntryReplyMarkupForChatUser();
+      await ctx.telegram.sendMessage(Number(groupChatId), welcomeText, kb);
+    } catch (e) {
+      this.logger.warn(
+        `after language pick, group welcome: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
   }
