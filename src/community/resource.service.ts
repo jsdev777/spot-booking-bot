@@ -30,6 +30,7 @@ export class ResourceService {
             include: { community: true },
             take: 1,
           },
+          sportKinds: { select: { sportKindCode: true } },
           workingHours: { orderBy: { weekday: 'asc' } },
         },
       })
@@ -67,6 +68,7 @@ export class ResourceService {
             include: { community: true },
             take: 1,
           },
+          sportKinds: { select: { sportKindCode: true } },
         },
       })
       .then((rows) =>

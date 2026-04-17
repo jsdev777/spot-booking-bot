@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import { Prisma, ResourceVisibility } from '@prisma/client';
+import { Prisma, ResourceVisibility, SportKindCode } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 async function replaceUniformWorkingHours(
@@ -60,6 +60,14 @@ async function seedCommunityResourceUserBookingLimits(
       maxMinutes: null,
     })),
   });
+}
+
+function buildResourceSportKindRows(
+  resourceId: string,
+  sportKindCodes: SportKindCode[],
+): { resourceId: string; sportKindCode: SportKindCode }[] {
+  const unique = [...new Set(sportKindCodes)];
+  return unique.map((sportKindCode) => ({ resourceId, sportKindCode }));
 }
 
 /**
@@ -129,6 +137,7 @@ export class CommunityService {
     slotStartHour: number;
     slotEndHour: number;
     resourceName: string;
+    sportKindCodes: SportKindCode[];
   }) {
     return this.prisma
       .$transaction(async (tx) => {
@@ -146,6 +155,9 @@ export class CommunityService {
             timeZone: params.timeZone,
             visibility: ResourceVisibility.ACTIVE,
           },
+        });
+        await tx.resourceSportKind.createMany({
+          data: buildResourceSportKindRows(resource.id, params.sportKindCodes),
         });
         const communityResource = await tx.communityResource.create({
           data: {
@@ -195,6 +207,7 @@ export class CommunityService {
     createNewResource?: boolean;
     /** For existing sites—visible in the booking system; new sites are always ACTIVE. */
     resourceVisibility?: ResourceVisibility;
+    sportKindCodes: SportKindCode[];
   }) {
     const existing = await this.prisma.community.findUnique({
       where: { telegramChatId: params.telegramChatId },
@@ -225,6 +238,9 @@ export class CommunityService {
             timeZone: params.timeZone,
             visibility: ResourceVisibility.ACTIVE,
           },
+        });
+        await tx.resourceSportKind.createMany({
+          data: buildResourceSportKindRows(resource.id, params.sportKindCodes),
         });
         const communityResource = await tx.communityResource.create({
           data: {
@@ -270,6 +286,12 @@ export class CommunityService {
             visibility: params.resourceVisibility ?? ResourceVisibility.ACTIVE,
           },
         });
+        await tx.resourceSportKind.deleteMany({
+          where: { resourceId: resource.id },
+        });
+        await tx.resourceSportKind.createMany({
+          data: buildResourceSportKindRows(resource.id, params.sportKindCodes),
+        });
         await replaceUniformWorkingHours(
           tx,
           resource.id,
@@ -285,6 +307,9 @@ export class CommunityService {
           timeZone: params.timeZone,
           visibility: ResourceVisibility.ACTIVE,
         },
+      });
+      await tx.resourceSportKind.createMany({
+        data: buildResourceSportKindRows(resource.id, params.sportKindCodes),
       });
       const communityResource = await tx.communityResource.create({
         data: {

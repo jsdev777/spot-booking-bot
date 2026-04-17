@@ -153,7 +153,10 @@
     "limitsWeekdayPickerTitle": "Ліміт на бронювання за днями тижня.\n\n{summary}\n\nВиберіть день тижня:",
     "limitsSavedPickWeekday": "Збережено. Поточні ліміти:\n\n{summary}\n\nВиберіть інший день або «{back}» в хаб.",
     "persistSetupFailed": "Не вдалося зберегти налаштування. Спробуйте ще раз.",
-    "persistSetupFailedRetryGroup": "Не вдалося зберегти налаштування. Спробуйте виконати команду /setup у групі ще раз."
+    "persistSetupFailedRetryGroup": "Не вдалося зберегти налаштування. Спробуйте виконати команду /setup у групі ще раз.",
+    "sportKindsTitle": "Оберіть види спорту для цього майданчика (кнопками знизу).",
+    "sportKindsDone": "Готово",
+    "sportKindsNeedOne": "Оберіть щонайменше один вид спорту для цього майданчика."
   },
   "limit": {
     "unlimited": "Без обмежень"
