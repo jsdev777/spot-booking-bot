@@ -1,97 +1,109 @@
 # Spot Booking Bot
 
-**Telegram-бот для групового бронювання спортивних майданчиків.** Учасники чату бронюють слоти в контексті своєї спільноти; адміністратори налаштовують майданчики, години роботи, вікно бронювання та ліміти. Бекенд побудований на **NestJS**, дані — **PostgreSQL** через **Prisma**, інтеграція з Telegram — **Telegraf** (`nestjs-telegraf`).
+**A Telegram bot for group-based sports venue booking.** Members book slots in their community context; admins configure venues, opening hours, booking windows, and limits. Built with **NestJS**, **PostgreSQL** + **Prisma**, and **Telegraf** (`nestjs-telegraf`).
 
-Проєкт демонструє повний цикл: предметна модель бронювання з урахуванням часових поясів, фонові задачі (статуси броней, нагадування), CI/CD з деплоєм у Docker на VPS.
+The project covers a full product loop: a real booking model with time zones, background jobs (booking lifecycle, reminders), and CI/CD with Docker deployment on a VPS.
 
-**Живий бот:** [@SpotBookingBot](https://t.me/SpotBookingBot)
+**Live bot:** [@SpotBookingBot](https://t.me/SpotBookingBot)
 
-**Мова інтерфейсу:** зараз реалізована лише **українська**. У планах — підтримка **кількох мов**, щоб одним і тим самим ботом могли користуватися люди з різних країн (у моделі даних уже закладена можливість прив’язки мови до учасника).
-
-**Спільні майданчики між спільнотами:** один і той самий об’єкт у системі може бути **підключений до кількох Telegram-груп**. Фізичний майданчик описується один раз; **зайнятість і розклад узгоджуються на його рівні**, тож перехресні броні з різних спільнот не проходять. Водночас **вікно бронювання, ліміти на користувача та видимість майданчика** налаштовуються **окремо для кожної спільноти** — це зручно адмініструвати й передбачено моделлю даних (`Resource` + зв’язок `CommunityResource`).
+**Languages:** **English** and **Ukrainian** — UI strings, menus, and reminders follow each user’s effective language (per community, with a personal default).
 
 ---
 
-## Що вміє продукт
+## Why this bot stands out
 
-### Учасник групи
-
-- **Покрокове бронювання** — вид спорту (**теніс, футбол, баскетбол, волейбол**), майданчик, день (сьогодні / завтра), час старту (:00 / :30), тривалість (1, 1,5 або 2 год).
-- **Пошук партнерів** — позначка «шукаю гравців», кількість вільних місць; інші долучаються через **«Вільні місця»** (з урахуванням кількості людей з боку учасника).
-- **Мої бронювання** — перегляд і скасування активних броней.
-- **Розклад дня** — сітка зайнятості обраного майданчика.
-- **Правила спільноти** — обов’язкове прийняття тексту правил адміністратора перед доступом до меню (ОП або група).
-- **Нагадування за ~15 хвилин до старту** — організатору та приєднаним учасникам (потрібен діалог із ботом і Start).
-
-### Адміністратор групи
-
-- **`/setup` і «Налаштування»** — майстер у **особистих повідомленнях** (не засмічує групу).
-- **Кілька майданчиків** на спільноту: назва, адреса, часовий пояс, **години роботи по днях тижня**, видимість (активний / прихований для звичайних учасників).
-- **Вікно бронювання** — діапазон місцевого часу, коли учасники можуть створювати броні; адміністратори — поза вікном.
-- **Ліміти часу бронювання на користувача**:
-  - на рівні **спільноти** (за днем тижня);
-  - на рівні **спільнота + конкретний майданчик** — окремі обмеження для кожного об’єкта.
-- **Текст правил** — задання та оновлення для групи.
-
-### Технічна логіка
-
-- **Спільне використання майданчика** кількома спільнотами: перевірка перетинів броней виконується за **`resourceId`**, тобто єдиний «календар» зайнятості на всі підключені групи.
-- Оновлення складу чату через Telegram **`chat_member`**, зв’язок користувача зі спільнотою та прапорець прийняття правил.
-- **Життєвий цикл броней** (очікування → активна → завершена / скасована) за розкладом.
-- Перетини інтервалів, слоти та **вікно бронювання** винесені в чисті модулі з **unit-тестами**.
-- HTTP **`/health`** — перевірка під час деплою та моніторингу.
+- **Private-first UX** — almost all interactions happen in **DM with the bot**, so the group chat stays clean while admins still use `/setup` when needed.
+- **Fair shared calendar** — the same physical venue can be **linked to several Telegram groups**; occupancy is enforced at **`resource` level**, so cross-community double-booking is blocked. **Booking window, per-user limits, and venue visibility** stay **per community** (`Resource` + `CommunityResource`).
+- **Partner matching** — organizers can mark “looking for players”; others join via **Open spots**, with headcount from each participant’s side.
+- **Clear accountability** — when someone joins an open spot, **both sides get a private summary** with **tap-to-open Telegram links** to the organizer and the joiner (plus the usual time, place, and sport details).
+- **Smarter day grid** — from **Day schedule**, users can tap **Book**; if they already opened **Today** or **Tomorrow**, the bot **skips asking for the day again** and jumps to time (or sport, if the venue has multiple).
+- **Bilingual UI** — **English** and **Ukrainian** with per-user language preference (community membership or personal default).
 
 ---
 
-## Стек та інструменти
+## What it does
 
-| Категорія | Технології |
-|-----------|------------|
+### Group members
+
+- **Multilingual UI** — **English** or **Ukrainian**; language can be chosen per community and/or as the user’s default, so mixed-language groups still get the right copy in DM.
+- **Guided booking** — sport (**tennis, football, basketball, volleyball**), venue, day (today / tomorrow), start time (:00 / :30 grid), duration (1, 1.5, or 2 hours).
+- **Looking for partners** — optional flag and “spots needed”; others join through **Open spots** (each tap can represent multiple people on their side).
+- **Open spots DMs** — roster confirmation with venue, address (or hint to ask in the group), window, sport, and **organizer contact link**; the **organizer** gets a matching DM with a **link to the joiner**.
+- **My bookings** — list and cancel active reservations.
+- **Day schedule** — occupancy grid for the selected venue; **Book** on the same keyboard; **day is inferred** when the grid for today/tomorrow is already open.
+- **Community rules** — mandatory acceptance of admin-defined rules before the booking menu (DM or group flow).
+- **Reminders ~15 minutes before start** — to the organizer and to participants who joined via open spots (users must have started the bot in DM).
+
+### Group admins
+
+- **`/setup` and “Settings”** — a wizard in **private messages** (keeps noise out of the group).
+- **Multiple venues per community** — name, address, time zone, **opening hours per weekday**, visibility (active vs hidden for regular members).
+- **Booking window** — local-time range when members may create bookings; **group admins book outside the window**.
+- **Per-user booking limits**:
+  - at **community** level (by weekday);
+  - at **community + venue** level — different caps per linked venue.
+- **Rules text** — set and update for the group.
+
+### Technical highlights
+
+- **One calendar across communities** — overlap checks use **`resourceId`**, so all linked groups see the same availability.
+- **Membership sync** via Telegram **`chat_member`**, user ↔ community link, and rules acceptance tracking.
+- **Booking lifecycle** (pending → active → completed / cancelled) driven by schedules and DB constraints.
+- **Overlap logic, slots, and booking window** live in focused modules with **unit tests**.
+- **`GET /health`** for deploy checks and monitoring.
+
+---
+
+## Stack
+
+| Area | Technologies |
+|------|----------------|
 | Runtime | Node.js 20+ |
 | Framework | NestJS 11, `@nestjs/config`, `@nestjs/schedule` |
-| База даних | PostgreSQL 16, Prisma 7 (`@prisma/adapter-pg`) |
+| Database | PostgreSQL 16, Prisma 7 (`@prisma/adapter-pg`) |
 | Telegram | Telegraf 4, `nestjs-telegraf` |
-| Час і TZ | `date-fns`, `date-fns-tz` |
-| Якість коду | ESLint 9, Prettier, TypeScript 5 |
-| Тести | Jest 30 (unit; e2e — Supertest, `test/jest-e2e.json`) |
-| Контейнеризація | Docker (multi-stage build), Docker Compose для локальної БД |
+| Time & TZ | `date-fns`, `date-fns-tz` |
+| i18n | `nestjs-i18n` (`en`, `ua` bot strings) |
+| Tooling | ESLint 9, Prettier, TypeScript 5 |
+| Tests | Jest 30 (unit; e2e with Supertest, `test/jest-e2e.json`) |
+| Containers | Docker (multi-stage), Docker Compose for local DB |
 
 ---
 
-## Якість і delivery
+## Quality & delivery
 
-- **CI (GitHub Actions)** на `main` і PR: `npm ci`, `prisma generate`, ESLint, **unit-тести** (`npm run test`), збірка; опційне завантаження покриття в Codecov. E2E (`npm run test:e2e`) — у скриптах для локальної та релізної перевірки.
-- **CD** після успішного CI: збірка образу, передача на **VPS (Hetzner)** через SSH/SCP, скрипт деплою з **`prisma migrate deploy`**, запуск контейнера, перевірка **`/health`**.
-- Секрети (SSH, `DATABASE_URL`, `BOT_TOKEN`) лише в CI/CD і на сервері, не в репозиторії.
+- **CI (GitHub Actions)** on `main` and PRs: `npm ci`, `prisma generate`, ESLint, **unit tests** (`npm run test`), build; optional Codecov upload. E2E (`npm run test:e2e`) is available for local and release checks.
+- **CD** after green CI: image build, deploy to **VPS (Hetzner)** via SSH/SCP, deploy script with **`prisma migrate deploy`**, container start, **`/health`** check.
+- Secrets (SSH, `DATABASE_URL`, `BOT_TOKEN`) live in CI/CD and on the server — **not** in the repo.
 
 ---
 
-## Вимоги
+## Requirements
 
 - Node.js 20+
 - PostgreSQL
-- Docker / Docker Compose (за бажанням)
-- Токен бота від [@BotFather](https://t.me/BotFather)
+- Docker / Docker Compose (optional)
+- Bot token from [@BotFather](https://t.me/BotFather)
 
 ---
 
-## Швидкий старт
+## Quick start
 
 ```bash
-git clone <url-репозиторію>
+git clone <repository-url>
 cd spot-booking-bot
 npm install
 cp .env.example .env
-# Заповніть DATABASE_URL, BOT_TOKEN, PORT
+# Set DATABASE_URL, BOT_TOKEN, PORT
 npm run prisma:migrate
 npm run start:dev
 ```
 
-**Продакшен-збірка:** `npm run build` → `npm run start:prod`.
+**Production:** `npm run build` → `npm run start:prod`.
 
 ---
 
-## Тести
+## Tests & load scripts
 
 ```bash
 npm run test
@@ -101,32 +113,33 @@ npm run smoke:load
 npm run load:db
 ```
 
-`load:db` можна налаштовувати через env:
+`load:db` can be tuned via env:
 
 ```bash
 LOAD_SECONDS=300 LOAD_CONCURRENCY=80 LOAD_MIX=50,30,20 npm run load:db
 ```
 
-Базові пороги `load:db` (fail якщо порушені):
+Example thresholds (failure if violated):
+
 - `system_error_rate < 1%`
 - `query p95 < 120ms`
 - `volunteer p95 < 120ms`
 - `noNegativeRequiredPlayers = true`
-- `noActivePendingOverlaps = true` (для тестових рядків поточного прогону)
+- `noActivePendingOverlaps = true` (for the test rows in the current run)
 
 ---
 
-## Prometheus і Grafana
+## Prometheus & Grafana
 
-- Метрики доступні за `GET /metrics`.
-- У застосунку є стандартні runtime-метрики і бізнес-метрики бронювання/нагадувань.
-- Готові файли для моніторингу:
+- Metrics: **`GET /metrics`**
+- Includes standard runtime metrics plus booking / reminder counters.
+- Repo assets:
   - `monitoring/prometheus/prometheus.yml`
   - `monitoring/prometheus/alerts.yml`
   - `monitoring/grafana/spot-booking-dashboard.json`
   - `monitoring/grafana/provisioning/*`
 
-Приклад scrape-конфігу:
+Example scrape config:
 
 ```yaml
 scrape_configs:
@@ -136,43 +149,41 @@ scrape_configs:
       - targets: ['<host>:3000']
 ```
 
-- Alert rules: `monitoring/prometheus/alerts.yml`
-- Dashboard template: `monitoring/grafana/spot-booking-dashboard.json` (Import у Grafana)
-
-Швидкий локальний запуск Prometheus + Grafana:
+Quick local Prometheus + Grafana:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
 ```
 
-Після запуску:
+Then:
+
 - Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3001` (login/password: `admin`/`admin`)
-- Дашборд підтягується автоматично з provisioning у папку `SpotBooking`.
+- Grafana: `http://localhost:3001` (default login `admin` / `admin`)
+- Dashboard is provisioned under **SpotBooking**.
 
 ---
 
 ## Docker
 
-Локально (застосунок + PostgreSQL):
+Local app + PostgreSQL:
 
 ```bash
 docker-compose up -d
 ```
 
-Продакшен-образ: багатоетапна збірка, користувач без root у контейнері, entrypoint очікує готовність PostgreSQL і застосовує міграції перед стартом додатку.
+Production image: multi-stage build, non-root user in the container, entrypoint waits for PostgreSQL and applies migrations before starting the app.
 
-Передавайте `DATABASE_URL` і `BOT_TOKEN` через змінні оточення оркестратора — **не** вшивайте в образ.
-
----
-
-## CI/CD (підсумок)
-
-У секретах GitHub мають бути, зокрема: SSH до сервера (хост, користувач, приватний ключ), `DATABASE_URL`, `BOT_TOKEN`, `DEPLOY_PATH`, за потреби `SSH_PORT` і `PORT`. Конкретні значення в документації не дублюються.
+Pass **`DATABASE_URL`** and **`BOT_TOKEN`** via your orchestrator’s environment — **do not** bake secrets into the image.
 
 ---
 
-## Корисні посилання
+## CI/CD (secrets)
+
+GitHub Actions secrets typically include: SSH to the server (host, user, private key), `DATABASE_URL`, `BOT_TOKEN`, `DEPLOY_PATH`, and optionally `SSH_PORT` and `PORT`. Exact values are not duplicated in this README.
+
+---
+
+## Links
 
 - [NestJS](https://docs.nestjs.com)
 - [Prisma](https://www.prisma.io/docs)
