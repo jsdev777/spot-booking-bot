@@ -187,8 +187,13 @@
   "slotDm": {
     "peopleYou": "From your side we count 1 person (you).",
     "peopleMany": "From your side we count {n} people.",
+    "peopleThemOne": "From their side we count 1 person.",
+    "peopleThemMany": "From their side we count {n} people.",
+    "organizerUnknown": "Organizer",
+    "organizerLine": "Organizer: {link}",
+    "organizerJoinNotify": "Someone joined your booking via “Open spots”.\n\nParticipant: {participantLink}\n{peopleThemLine}\n\nVenue: «{resource}»\nAddress: {address}\nWhen: {when}\nSport: {sport}\n\nKeep this chat — reminders may arrive here.",
     "addressUnknown": "not specified — ask the organizer in the group",
-    "full": "You are on the participant list.\n\n{peopleLine}\n\nVenue: «{resource}»\nAddress: {address}\nWhen: {when}\nSport: {sport}\n\nKeep this chat — reminders may arrive here."
+    "full": "{organizerLine}\n\nYou are on the participant list.\n\n{peopleLine}\n\nVenue: «{resource}»\nAddress: {address}\nWhen: {when}\nSport: {sport}\n\nKeep this chat — reminders may arrive here."
   },
   "whDm": {
     "menuPlain": "Menu:",

@@ -177,6 +177,11 @@ export class BotUpdate {
   /** Последняя группа, из которой админ вёл /setup (ЛС «Настройки» открывает её снова). */
   private readonly lastSetupGroupByUser = new Map<number, string>();
   private readonly pendingBookSportResourceByUser = new Map<number, string>();
+  /** After choosing a sport, skip `book_day` and use this day (set when booking from the day grid). */
+  private readonly pendingBookDayOffsetAfterSportByUser = new Map<
+    number,
+    0 | 1
+  >();
 
   constructor(
     private readonly booking: BookingService,
@@ -411,6 +416,7 @@ export class BotUpdate {
     this.setMenuState(ctx, defaultMenuState());
     if (ctx.from) {
       this.pendingBookSportResourceByUser.delete(ctx.from.id);
+      this.pendingBookDayOffsetAfterSportByUser.delete(ctx.from.id);
     }
   }
 
@@ -850,6 +856,18 @@ export class BotUpdate {
       .persistent(true);
   }
 
+  /** Day schedule (grid): same day switchers as booking, plus «Book» like the main menu. */
+  private gridDayReplyMarkup() {
+    const lbl = this.kb();
+    return Markup.keyboard([
+      [lbl.menuDayToday, lbl.menuDayTomorrow],
+      [lbl.menuBook],
+      [lbl.menuBack, lbl.menuMain],
+    ])
+      .resize()
+      .persistent(true);
+  }
+
   private hoursPickReplyMarkup(slots: BookingStartSlot[]) {
     const lbl = this.kb();
     const labels = slots.map(
@@ -1094,6 +1112,7 @@ export class BotUpdate {
         return;
       case 'book_sport':
         this.pendingBookSportResourceByUser.delete(ctx.from!.id);
+        this.pendingBookDayOffsetAfterSportByUser.delete(ctx.from!.id);
         this.setMenuState(ctx, { t: 'book_res' });
         await ctx.reply(
           this.botT(this.kb().lang, 'book.pickResource'),
@@ -1459,7 +1478,7 @@ export class BotUpdate {
         });
         await ctx.reply(
           this.botT(this.kb().lang, 'book.pickDayGrid'),
-          this.dayPickReplyMarkup(),
+          this.gridDayReplyMarkup(),
         );
         return;
       }
@@ -1598,7 +1617,19 @@ export class BotUpdate {
     if (!(await this.ensureParticipantBookingWindowOpen(ctx, chatId, comm))) {
       return;
     }
+    const skipDayOffset = this.pendingBookDayOffsetAfterSportByUser.get(
+      ctx.from!.id,
+    );
     this.pendingBookSportResourceByUser.delete(ctx.from!.id);
+    if (skipDayOffset !== undefined) {
+      this.pendingBookDayOffsetAfterSportByUser.delete(ctx.from!.id);
+      await this.goToBookHourFromDayOffset(ctx, {
+        resourceId: resource.id,
+        dayOffset: skipDayOffset,
+        sportKindCode: kindCode,
+      });
+      return;
+    }
     this.setMenuState(ctx, {
       t: 'book_day',
       resourceId: resource.id,
@@ -1630,7 +1661,50 @@ export class BotUpdate {
     this.setMenuState(ctx, { t: 'grid_day', resourceId: r.id });
     await ctx.reply(
       this.botT(this.kb().lang, 'book.pickDayGrid'),
-      this.dayPickReplyMarkup(),
+      this.gridDayReplyMarkup(),
+    );
+  }
+
+  private async goToBookHourFromDayOffset(
+    ctx: Context,
+    params: {
+      resourceId: string;
+      dayOffset: 0 | 1;
+      sportKindCode?: SportKindCode;
+    },
+  ): Promise<void> {
+    const chatId = await this.resolveActiveGroupChatId(ctx);
+    if (chatId == null) {
+      return;
+    }
+    const admin = await this.isAdminInContextGroup(ctx, chatId);
+    const starts = await this.booking.getAvailableStartSlots({
+      resourceId: params.resourceId,
+      telegramChatId: chatId,
+      dayOffset: params.dayOffset,
+      telegramGroupAdmin: admin,
+    });
+    if (starts.length === 0) {
+      this.resetMenuState(ctx);
+      await ctx.reply(
+        this.botT(this.kb().lang, 'book.noFreeIntervals'),
+        await this.mainMenuReplyMarkup(ctx),
+      );
+      return;
+    }
+    this.setMenuState(ctx, {
+      t: 'book_hour',
+      resourceId: params.resourceId,
+      dayOffset: params.dayOffset,
+      ...(params.sportKindCode !== undefined
+        ? { sportKindCode: params.sportKindCode }
+        : {}),
+    });
+    await ctx.reply(
+      params.dayOffset === 0
+        ? this.botT(this.kb().lang, 'book.pickStartToday')
+        : this.botT(this.kb().lang, 'book.pickStartTomorrow'),
+      this.hoursPickReplyMarkup(starts),
     );
   }
 
@@ -1648,39 +1722,11 @@ export class BotUpdate {
     if (dayOffset === undefined) {
       return;
     }
-    const chatId = await this.resolveActiveGroupChatId(ctx);
-    if (chatId == null) {
-      return;
-    }
-    const admin = await this.isAdminInContextGroup(ctx, chatId);
-    const starts = await this.booking.getAvailableStartSlots({
-      resourceId: state.resourceId,
-      telegramChatId: chatId,
-      dayOffset,
-      telegramGroupAdmin: admin,
-    });
-    if (starts.length === 0) {
-      this.resetMenuState(ctx);
-      await ctx.reply(
-        this.botT(this.kb().lang, 'book.noFreeIntervals'),
-        await this.mainMenuReplyMarkup(ctx),
-      );
-      return;
-    }
-    this.setMenuState(ctx, {
-      t: 'book_hour',
+    await this.goToBookHourFromDayOffset(ctx, {
       resourceId: state.resourceId,
       dayOffset,
-      ...(state.sportKindCode !== undefined
-        ? { sportKindCode: state.sportKindCode }
-        : {}),
+      sportKindCode: state.sportKindCode,
     });
-    await ctx.reply(
-      dayOffset === 0
-        ? this.botT(this.kb().lang, 'book.pickStartToday')
-        : this.botT(this.kb().lang, 'book.pickStartTomorrow'),
-      this.hoursPickReplyMarkup(starts),
-    );
   }
 
   private async handleBookHourPick(
@@ -1983,11 +2029,81 @@ export class BotUpdate {
     });
   }
 
+  private async startBookFromGridDay(
+    ctx: Context,
+    state: Extract<MenuState, { t: 'grid_day' }>,
+  ): Promise<void> {
+    if (state.viewedDayOffset === undefined) {
+      await this.handleMainMenuButtons(ctx, this.kb().menuBook);
+      return;
+    }
+    const chatId = await this.resolveActiveGroupChatId(ctx);
+    if (chatId == null) {
+      return;
+    }
+    const isAdminInGroup = await this.isAdminInContextGroup(ctx, chatId);
+    if (!isAdminInGroup) {
+      const canProceed = await this.ensureParticipantGroupOnboarding(
+        ctx,
+        chatId,
+      );
+      if (!canProceed) {
+        await ctx.reply(
+          this.botT(this.kb().lang, 'onboarding.needLanguageRulesDm'),
+          await this.mainMenuReplyMarkup(ctx),
+        );
+        return;
+      }
+    }
+    const comm = await this.community.findByTelegramChatId(chatId);
+    const admin = isAdminInGroup;
+    const visible = comm ? this.bookableResources(comm.resources, admin) : [];
+    if (!comm || visible.length === 0) {
+      await ctx.reply(
+        this.botT(this.kb().lang, 'book.platformNotConfigured'),
+        await this.mainMenuReplyMarkup(ctx),
+      );
+      return;
+    }
+    if (!admin) {
+      if (!(await this.ensureParticipantBookingWindowOpen(ctx, chatId, comm))) {
+        return;
+      }
+    }
+    const list = await this.resourcesForBookingUi(chatId, admin);
+    const resource = list.find((x) => x.id === state.resourceId);
+    if (!resource) {
+      await this.handleMainMenuButtons(ctx, this.kb().menuBook);
+      return;
+    }
+    const dayOffset = state.viewedDayOffset;
+    const sportKinds = this.resourceSportKindCodes(resource);
+    if (sportKinds.length <= 1) {
+      await this.goToBookHourFromDayOffset(ctx, {
+        resourceId: resource.id,
+        dayOffset,
+        sportKindCode: sportKinds[0],
+      });
+      return;
+    }
+    this.pendingBookSportResourceByUser.set(ctx.from!.id, resource.id);
+    this.pendingBookDayOffsetAfterSportByUser.set(ctx.from!.id, dayOffset);
+    this.setMenuState(ctx, { t: 'book_sport' });
+    await ctx.reply(
+      this.botT(this.kb().lang, 'book.pickSport'),
+      this.sportPickReplyMarkup(sportKinds),
+    );
+  }
+
   private async handleGridDayPick(
     ctx: Context,
     text: string,
     state: Extract<MenuState, { t: 'grid_day' }>,
   ) {
+    if (text === this.kb().menuBook) {
+      await this.startBookFromGridDay(ctx, state);
+      return;
+    }
     let dayOffset: 0 | 1 | undefined;
     if (text === this.kb().menuDayToday) {
       dayOffset = 0;
@@ -2008,8 +2124,12 @@ export class BotUpdate {
       dayOffset,
       telegramGroupAdmin: admin,
     });
-    this.setMenuState(ctx, { t: 'grid_day', resourceId: state.resourceId });
-    await ctx.reply(gridText, this.dayPickReplyMarkup());
+    this.setMenuState(ctx, {
+      t: 'grid_day',
+      resourceId: state.resourceId,
+      viewedDayOffset: dayOffset,
+    });
+    await ctx.reply(gridText, this.gridDayReplyMarkup());
   }
 
   private async sendBookingCancellationAlerts(
@@ -2100,6 +2220,33 @@ export class BotUpdate {
     }
   }
 
+  private escapeHtml(s: string): string {
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  private telegramUserHtmlLink(telegramUserId: number, label: string): string {
+    const safe = this.escapeHtml(label);
+    return `<a href="tg://user?id=${telegramUserId}">${safe}</a>`;
+  }
+
+  private lookingJoinParticipantLabel(
+    lang: string,
+    from: NonNullable<Context['from']>,
+  ): string {
+    const u = from.username?.trim();
+    if (u) {
+      return `@${u}`;
+    }
+    const fn = from.first_name?.trim();
+    if (fn) {
+      return fn;
+    }
+    return this.botT(lang, 'book.adminPlayerFallback');
+  }
+
   private formatLookingSlotDmText(params: {
     dm: {
       resourceName: string;
@@ -2110,13 +2257,17 @@ export class BotUpdate {
       sportNameUa: string;
     };
     yourPeopleCount: number;
+    organizer: {
+      telegramUserId: number;
+      storedDisplayName: string | null;
+    };
   }): string {
-    const { dm, yourPeopleCount } = params;
+    const { dm, yourPeopleCount, organizer } = params;
     const lang = this.kb().lang;
     const day = formatInTimeZone(dm.startTime, dm.timeZone, 'dd.MM.yyyy');
     const a = formatInTimeZone(dm.startTime, dm.timeZone, 'HH:mm');
     const z = formatInTimeZone(dm.endTime, dm.timeZone, 'HH:mm');
-    const addr = dm.address?.trim()
+    const addrRaw = dm.address?.trim()
       ? dm.address.trim()
       : this.botT(lang, 'slotDm.addressUnknown');
     const peopleLine =
@@ -2126,12 +2277,19 @@ export class BotUpdate {
             n: String(yourPeopleCount),
           });
     const when = `${day} ${a}–${z} (${dm.timeZone})`;
+    const orgLabel =
+      organizer.storedDisplayName?.trim() ||
+      this.botT(lang, 'slotDm.organizerUnknown');
+    const organizerLine = this.botT(lang, 'slotDm.organizerLine', {
+      link: this.telegramUserHtmlLink(organizer.telegramUserId, orgLabel),
+    });
     return this.botT(lang, 'slotDm.full', {
-      peopleLine,
-      resource: dm.resourceName,
-      address: addr,
-      when,
-      sport: dm.sportNameUa,
+      organizerLine,
+      peopleLine: this.escapeHtml(peopleLine),
+      resource: this.escapeHtml(dm.resourceName),
+      address: this.escapeHtml(addrRaw),
+      when: this.escapeHtml(when),
+      sport: this.escapeHtml(dm.sportNameUa),
     });
   }
 
@@ -2140,6 +2298,10 @@ export class BotUpdate {
     bookingId: string,
     joinResult: {
       previousDmMessageId: number | null;
+      organizer: {
+        telegramUserId: number;
+        storedDisplayName: string | null;
+      };
       dm: {
         resourceName: string;
         address: string | null;
@@ -2158,10 +2320,13 @@ export class BotUpdate {
     const text = this.formatLookingSlotDmText({
       dm: joinResult.dm,
       yourPeopleCount: joinResult.yourPeopleCount,
+      organizer: joinResult.organizer,
     });
     let sentId: number;
     try {
-      const sent = await ctx.telegram.sendMessage(userId, text);
+      const sent = await ctx.telegram.sendMessage(userId, text, {
+        parse_mode: 'HTML',
+      });
       sentId = sent.message_id;
     } catch (e) {
       this.logger.warn(
@@ -2183,6 +2348,74 @@ export class BotUpdate {
       } catch {
         /* уже удалено или нет прав */
       }
+    }
+  }
+
+  private async notifyOrganizerOfLookingJoin(params: {
+    ctx: Context;
+    groupChatId: bigint;
+    joinResult: {
+      organizer: {
+        telegramUserId: number;
+        storedDisplayName: string | null;
+      };
+      dm: {
+        resourceName: string;
+        address: string | null;
+        timeZone: string;
+        startTime: Date;
+        endTime: Date;
+        sportNameUa: string;
+      };
+      yourPeopleCount: number;
+    };
+    joiner: NonNullable<Context['from']>;
+  }) {
+    const { organizer, dm, yourPeopleCount } = params.joinResult;
+    if (params.joiner.id === organizer.telegramUserId) {
+      return;
+    }
+    const lang = await this.langForDmUser(
+      organizer.telegramUserId,
+      params.groupChatId,
+    );
+    const participantLabel = this.lookingJoinParticipantLabel(
+      lang,
+      params.joiner,
+    );
+    const participantLink = this.telegramUserHtmlLink(
+      params.joiner.id,
+      participantLabel,
+    );
+    const peopleThemLine =
+      yourPeopleCount === 1
+        ? this.botT(lang, 'slotDm.peopleThemOne')
+        : this.botT(lang, 'slotDm.peopleThemMany', {
+            n: String(yourPeopleCount),
+          });
+    const day = formatInTimeZone(dm.startTime, dm.timeZone, 'dd.MM.yyyy');
+    const a = formatInTimeZone(dm.startTime, dm.timeZone, 'HH:mm');
+    const z = formatInTimeZone(dm.endTime, dm.timeZone, 'HH:mm');
+    const addrRaw = dm.address?.trim()
+      ? dm.address.trim()
+      : this.botT(lang, 'slotDm.addressUnknown');
+    const when = `${day} ${a}–${z} (${dm.timeZone})`;
+    const text = this.botT(lang, 'slotDm.organizerJoinNotify', {
+      participantLink,
+      peopleThemLine: this.escapeHtml(peopleThemLine),
+      resource: this.escapeHtml(dm.resourceName),
+      address: this.escapeHtml(addrRaw),
+      when: this.escapeHtml(when),
+      sport: this.escapeHtml(dm.sportNameUa),
+    });
+    try {
+      await params.ctx.telegram.sendMessage(organizer.telegramUserId, text, {
+        parse_mode: 'HTML',
+      });
+    } catch (e) {
+      this.logger.warn(
+        `organizer looking-join DM failed user=${organizer.telegramUserId}: ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
   }
 
@@ -2250,6 +2483,12 @@ export class BotUpdate {
     }
 
     await this.sendLookingSlotDm(ctx, bookingId, joinResult);
+    await this.notifyOrganizerOfLookingJoin({
+      ctx,
+      groupChatId: chatId,
+      joinResult,
+      joiner: ctx.from!,
+    });
 
     const rows = await this.booking.listOpenLookingSlots({
       telegramChatId: chatId,

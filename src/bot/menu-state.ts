@@ -41,7 +41,8 @@ export type MenuState =
       durationMinutes: BookingDurationMinutes;
     }
   | { t: 'grid_res' }
-  | { t: 'grid_day'; resourceId: string }
+  /** `viewedDayOffset` is set after the user opens the schedule for today or tomorrow (used to skip day pick when booking from this screen). */
+  | { t: 'grid_day'; resourceId: string; viewedDayOffset?: 0 | 1 }
   | { t: 'list'; bookingIds: string[]; rowLabels: string[] }
   /** Reservations with partner search (the “Available Seats” button). */
   | { t: 'free_slots'; bookingIds: string[]; rowLabels: string[] };
