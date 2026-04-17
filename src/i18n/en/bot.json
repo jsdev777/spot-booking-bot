@@ -152,7 +152,10 @@
     "limitsWeekdayPickerTitle": "Per-weekday booking limits.\n\n{summary}\n\nPick a weekday:",
     "limitsSavedPickWeekday": "Saved. Current limits:\n\n{summary}\n\nPick another weekday or «{back}» to return to the hub.",
     "persistSetupFailed": "Could not save settings. Please try again.",
-    "persistSetupFailedRetryGroup": "Could not save settings. Run /setup in the group again."
+    "persistSetupFailedRetryGroup": "Could not save settings. Run /setup in the group again.",
+    "sportKindsTitle": "Choose sports available on this venue (toggle buttons).",
+    "sportKindsDone": "Done",
+    "sportKindsNeedOne": "Select at least one sport for this venue."
   },
   "limit": {
     "unlimited": "No limit"

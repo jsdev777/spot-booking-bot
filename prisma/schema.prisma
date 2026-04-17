@@ -21,6 +21,7 @@ model SportKind {
   sportKindCode SportKindCode @id @map("sport_kind_code")
   nameUa        String        @map("name_ua")
   bookings      Booking[]
+  resources     ResourceSportKind[]
 
   @@map("sport_kinds")
 }
@@ -178,8 +179,20 @@ model Resource {
   communityResources CommunityResource[]
   bookings     Booking[]
   workingHours ResourceWorkingHours[]
+  sportKinds   ResourceSportKind[]
 
   @@map("resources")
+}
+
+model ResourceSportKind {
+  resourceId    String        @map("resource_id")
+  sportKindCode SportKindCode @map("sport_kind_code")
+  resource      Resource      @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  sportKind     SportKind     @relation(fields: [sportKindCode], references: [sportKindCode], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([resourceId, sportKindCode])
+  @@index([sportKindCode])
+  @@map("resource_sport_kinds")
 }
 
 /// Site operating hours by day of the week (ISO 1 = Mon … 7 = Sun)

@@ -105,6 +105,7 @@ interface SetupDraft {
   timeZone?: string;
   slotStart?: number;
   slotEnd?: number;
+  sportKindCodes?: SportKindCode[];
   /** Название группы для текстов шага 1 (мастер ведётся в ЛС). */
   groupChatTitleForPrompt?: string;
   /** Шаг 0: хаб, список площадок или мастер «время бронирования в группе». */
@@ -120,7 +121,8 @@ interface SetupDraft {
     | 'bw_start'
     | 'bw_end'
     | 'limit_pick_day'
-    | 'limit_pick_hours';
+    | 'limit_pick_hours'
+    | 'sport_kinds_pick';
   bwTzDraft?: string;
   bwStartHourDraft?: number;
   /** ISO 1–7 для мастера лимита по дням. */
@@ -174,6 +176,7 @@ export class BotUpdate {
   private readonly whPerDayEditByUser = new Map<number, WhPerDayEditDraft>();
   /** Последняя группа, из которой админ вёл /setup (ЛС «Настройки» открывает её снова). */
   private readonly lastSetupGroupByUser = new Map<number, string>();
+  private readonly pendingBookSportResourceByUser = new Map<number, string>();
 
   constructor(
     private readonly booking: BookingService,
@@ -406,6 +409,9 @@ export class BotUpdate {
 
   private resetMenuState(ctx: Context) {
     this.setMenuState(ctx, defaultMenuState());
+    if (ctx.from) {
+      this.pendingBookSportResourceByUser.delete(ctx.from.id);
+    }
   }
 
   private setupStepMax(draft: SetupDraft): 5 | 6 {
@@ -1021,6 +1027,13 @@ export class BotUpdate {
     return [...SPORT_ORDER];
   }
 
+  private resourceSportKindCodes(resource: {
+    sportKinds?: { sportKindCode: SportKindCode }[];
+  }): SportKindCode[] {
+    const codes = resource.sportKinds?.map((x) => x.sportKindCode) ?? [];
+    return codes.length > 0 ? codes : [SportKindCode.TENNIS];
+  }
+
   private sportPickReplyMarkup(types: SportKindCode[]) {
     const lbl = this.kb();
     const rows = kbRowsPaired(
@@ -1080,30 +1093,17 @@ export class BotUpdate {
       case 'main':
         return;
       case 'book_sport':
-        this.resetMenuState(ctx);
+        this.pendingBookSportResourceByUser.delete(ctx.from!.id);
+        this.setMenuState(ctx, { t: 'book_res' });
         await ctx.reply(
-          this.botT(this.kb().lang, 'menu.title'),
-          await this.mainMenuReplyMarkup(ctx),
+          this.botT(this.kb().lang, 'book.pickResource'),
+          this.resourcePickReplyMarkup(
+            await this.resourcesForBookingUi(chatId, admin),
+            admin,
+          ),
         );
         return;
       case 'book_res': {
-        if (s.sportKindCode !== undefined) {
-          const comm = await this.community.findByTelegramChatId(chatId);
-          if (!comm) {
-            return;
-          }
-          if (
-            !(await this.ensureParticipantBookingWindowOpen(ctx, chatId, comm))
-          ) {
-            return;
-          }
-          this.setMenuState(ctx, { t: 'book_sport' });
-          await ctx.reply(
-            this.botT(this.kb().lang, 'book.pickSport'),
-            this.sportPickReplyMarkup(this.allSportKindCodesForPicker()),
-          );
-          return;
-        }
         this.resetMenuState(ctx);
         await ctx.reply(
           this.botT(this.kb().lang, 'menu.title'),
@@ -1125,26 +1125,30 @@ export class BotUpdate {
         }
         if (s.sportKindCode !== undefined) {
           const list = await this.resourcesForBookingUi(chatId, admin);
-          if (list.length <= 1) {
-            if (
-              !(await this.ensureParticipantBookingWindowOpen(
-                ctx,
-                chatId,
-                comm,
-              ))
-            ) {
+          const selected = list.find((x) => x.id === s.resourceId);
+          if (selected) {
+            const sportKinds = this.resourceSportKindCodes(selected);
+            if (sportKinds.length > 1) {
+              if (
+                !(await this.ensureParticipantBookingWindowOpen(
+                  ctx,
+                  chatId,
+                  comm,
+                ))
+              ) {
+                return;
+              }
+              this.pendingBookSportResourceByUser.set(ctx.from!.id, selected.id);
+              this.setMenuState(ctx, { t: 'book_sport' });
+              await ctx.reply(
+                this.botT(this.kb().lang, 'book.pickSport'),
+                this.sportPickReplyMarkup(sportKinds),
+              );
               return;
             }
-            this.setMenuState(ctx, { t: 'book_sport' });
-            await ctx.reply(
-              this.botT(this.kb().lang, 'book.pickSport'),
-              this.sportPickReplyMarkup(this.allSportKindCodesForPicker()),
-            );
-            return;
           }
           this.setMenuState(ctx, {
             t: 'book_res',
-            sportKindCode: s.sportKindCode,
           });
           await ctx.reply(
             this.botT(this.kb().lang, 'book.pickResource'),
@@ -1370,10 +1374,36 @@ export class BotUpdate {
           return;
         }
       }
-      this.setMenuState(ctx, { t: 'book_sport' });
+      const list = await this.resourcesForBookingUi(chatId, admin);
+      if (list.length === 1) {
+        const only = list[0];
+        const sportKinds = this.resourceSportKindCodes(only);
+        if (sportKinds.length <= 1) {
+          this.pendingBookSportResourceByUser.delete(ctx.from!.id);
+          this.setMenuState(ctx, {
+            t: 'book_day',
+            resourceId: only.id,
+            sportKindCode: sportKinds[0],
+          });
+          await ctx.reply(
+            this.botT(this.kb().lang, 'book.pickDay'),
+            this.dayPickReplyMarkup(),
+          );
+          return;
+        }
+        this.pendingBookSportResourceByUser.set(ctx.from!.id, only.id);
+        this.setMenuState(ctx, { t: 'book_sport' });
+        await ctx.reply(
+          this.botT(this.kb().lang, 'book.pickSport'),
+          this.sportPickReplyMarkup(sportKinds),
+        );
+        return;
+      }
+      this.pendingBookSportResourceByUser.delete(ctx.from!.id);
+      this.setMenuState(ctx, { t: 'book_res' });
       await ctx.reply(
-        this.botT(this.kb().lang, 'book.pickSport'),
-        this.sportPickReplyMarkup(this.allSportKindCodesForPicker()),
+        this.botT(this.kb().lang, 'book.pickResource'),
+        this.resourcePickReplyMarkup(list, admin),
       );
       return;
     }
@@ -1512,20 +1542,33 @@ export class BotUpdate {
     if (!(await this.ensureParticipantBookingWindowOpen(ctx, chatId, comm))) {
       return;
     }
-    this.setMenuState(ctx, {
-      t: 'book_day',
-      resourceId: r.id,
-      ...(state.sportKindCode !== undefined
-        ? { sportKindCode: state.sportKindCode }
-        : {}),
-    });
+    const sportKinds = this.resourceSportKindCodes(r);
+    if (sportKinds.length <= 1) {
+      this.pendingBookSportResourceByUser.delete(ctx.from!.id);
+      this.setMenuState(ctx, {
+        t: 'book_day',
+        resourceId: r.id,
+        sportKindCode: sportKinds[0],
+      });
+      await ctx.reply(
+        this.botT(this.kb().lang, 'book.pickDay'),
+        this.dayPickReplyMarkup(),
+      );
+      return;
+    }
+    this.pendingBookSportResourceByUser.set(ctx.from!.id, r.id);
+    this.setMenuState(ctx, { t: 'book_sport' });
     await ctx.reply(
-      this.botT(this.kb().lang, 'book.pickDay'),
-      this.dayPickReplyMarkup(),
+      this.botT(this.kb().lang, 'book.pickSport'),
+      this.sportPickReplyMarkup(sportKinds),
     );
   }
 
   private async handleBookSportPick(ctx: Context, text: string) {
+    const state = this.getMenuState(ctx);
+    if (state.t !== 'book_sport') {
+      return;
+    }
     const chatId = await this.resolveActiveGroupChatId(ctx);
     if (chatId == null) {
       return;
@@ -1539,33 +1582,31 @@ export class BotUpdate {
       return;
     }
     const admin = await this.isAdminInContextGroup(ctx, chatId);
+    const resourceId = this.pendingBookSportResourceByUser.get(ctx.from!.id);
+    if (!resourceId) {
+      return;
+    }
     const list = await this.resourcesForBookingUi(chatId, admin);
-    if (list.length === 0) {
+    const resource = list.find((x) => x.id === resourceId);
+    if (!resource) {
       await ctx.reply(
         this.botT(this.kb().lang, 'book.noResourcesAskAdmin'),
         await this.mainMenuReplyMarkup(ctx),
       );
       return;
     }
-    if (list.length === 1) {
-      if (!(await this.ensureParticipantBookingWindowOpen(ctx, chatId, comm))) {
-        return;
-      }
-      this.setMenuState(ctx, {
-        t: 'book_day',
-        resourceId: list[0].id,
-        sportKindCode: kindCode,
-      });
-      await ctx.reply(
-        this.botT(this.kb().lang, 'book.pickDay'),
-        this.dayPickReplyMarkup(),
-      );
+    if (!(await this.ensureParticipantBookingWindowOpen(ctx, chatId, comm))) {
       return;
     }
-    this.setMenuState(ctx, { t: 'book_res', sportKindCode: kindCode });
+    this.pendingBookSportResourceByUser.delete(ctx.from!.id);
+    this.setMenuState(ctx, {
+      t: 'book_day',
+      resourceId: resource.id,
+      sportKindCode: kindCode,
+    });
     await ctx.reply(
-      this.botT(this.kb().lang, 'book.pickResource'),
-      this.resourcePickReplyMarkup(list, admin),
+      this.botT(this.kb().lang, 'book.pickDay'),
+      this.dayPickReplyMarkup(),
     );
   }
 
@@ -1786,7 +1827,35 @@ export class BotUpdate {
     } catch (e) {
       const lang = this.kb().lang;
       if (e instanceof SlotTakenError) {
-        await this.replyWithMainMenu(ctx, this.botT(lang, 'book.slotTaken'));
+        const starts = await this.booking.getAvailableStartSlots({
+          resourceId: flow.resourceId,
+          telegramChatId: chatId,
+          dayOffset: flow.dayOffset,
+          telegramGroupAdmin: admin,
+        });
+        if (starts.length === 0) {
+          this.resetMenuState(ctx);
+          await ctx.reply(
+            this.botT(lang, 'book.noFreeIntervals'),
+            await this.mainMenuReplyMarkup(ctx),
+          );
+          return;
+        }
+        this.setMenuState(ctx, {
+          t: 'book_hour',
+          resourceId: flow.resourceId,
+          dayOffset: flow.dayOffset,
+          ...(flow.sportKindCode !== undefined
+            ? { sportKindCode: flow.sportKindCode }
+            : {}),
+        });
+        await ctx.reply(this.botT(lang, 'book.slotTaken'));
+        await ctx.reply(
+          flow.dayOffset === 0
+            ? this.botT(lang, 'book.pickStartToday')
+            : this.botT(lang, 'book.pickStartTomorrow'),
+          this.hoursPickReplyMarkup(starts),
+        );
         return;
       }
       if (e instanceof SlotInPastError) {
@@ -3043,6 +3112,20 @@ export class BotUpdate {
     return Markup.keyboard(rows).resize().persistent(true);
   }
 
+  private setupSportKindsReplyMarkup(selected: SportKindCode[]) {
+    const picked = new Set(selected);
+    const rows = kbRowsPaired(
+      this.allSportKindCodesForPicker().map((code) => {
+        const label = this.botT(this.kb().lang, `sport.${code}`);
+        return `${picked.has(code) ? '✅ ' : ''}${label}`.slice(0, 64);
+      }),
+    );
+    rows.push([this.botT(this.kb().lang, 'setup.sportKindsDone')]);
+    rows.push([this.kb().menuBack, this.kb().menuMain]);
+    rows.push([this.kb().setupCancel]);
+    return Markup.keyboard(rows).resize().persistent(true);
+  }
+
   private setupHubButtonsHintText(): string {
     const lbl = this.kb();
     return this.botT(lbl.lang, 'setup.hubHint', {
@@ -3732,7 +3815,9 @@ export class BotUpdate {
       draft.resourceAddress === undefined ||
       !draft.timeZone ||
       draft.slotStart === undefined ||
-      draft.slotEnd === undefined
+      draft.slotEnd === undefined ||
+      !draft.sportKindCodes ||
+      draft.sportKindCodes.length === 0
     ) {
       this.setupDrafts.delete(sk);
       this.setupBridgeGroupByUser.delete(uid);
@@ -3759,6 +3844,7 @@ export class BotUpdate {
         updateCommunityName: false,
         createNewResource: draft.creatingNewResource === true,
         resourceVisibility,
+        sportKindCodes: draft.sportKindCodes,
       });
       this.setupDrafts.delete(sk);
       this.setupBridgeGroupByUser.delete(uid);
@@ -3857,6 +3943,63 @@ export class BotUpdate {
     }
 
     const chatTitle = draft.groupChatTitleForPrompt ?? 'Чат';
+
+    if (draft.venuesSubstep === 'sport_kinds_pick') {
+      const doneLabel = this.botT(this.kb().lang, 'setup.sportKindsDone');
+      if (text === this.kb().menuBack) {
+        draft.venuesSubstep = undefined;
+        this.setupDrafts.set(sk, draft);
+        await this.sendSetupDm(
+          ctx,
+          this.setupAddressPromptText(
+            draft.setupResourceAddressLabel,
+            this.setupStepMax(draft),
+          ),
+          this.setupAddressReplyMarkup(!!draft.setupResourceAddressLabel?.trim()),
+        );
+        return;
+      }
+      if (text === doneLabel) {
+        const picked = draft.sportKindCodes ?? [];
+        if (picked.length === 0) {
+          await this.sendSetupDm(
+            ctx,
+            this.botT(this.kb().lang, 'setup.sportKindsNeedOne'),
+            this.setupSportKindsReplyMarkup([]),
+          );
+          return;
+        }
+        draft.venuesSubstep = undefined;
+        draft.step = 3;
+        this.setupDrafts.set(sk, draft);
+        await this.sendSetupDm(
+          ctx,
+          `${this.setupStepLine(3, draft)}: часовий пояс (слоти будуть у цьому поясі)`,
+          this.setupTzReplyMarkup(),
+        );
+        return;
+      }
+      const code = sportLabelToCodeMap(this.i18n, this.kb().lang).get(
+        text.replace(/^✅\s+/, ''),
+      );
+      if (!code) {
+        return;
+      }
+      const set = new Set(draft.sportKindCodes ?? []);
+      if (set.has(code)) {
+        set.delete(code);
+      } else {
+        set.add(code);
+      }
+      draft.sportKindCodes = [...set];
+      this.setupDrafts.set(sk, draft);
+      await this.sendSetupDm(
+        ctx,
+        this.botT(this.kb().lang, 'setup.sportKindsTitle'),
+        this.setupSportKindsReplyMarkup(draft.sportKindCodes),
+      );
+      return;
+    }
 
     switch (draft.step) {
       case 0: {
@@ -4470,6 +4613,7 @@ export class BotUpdate {
         draft.setupResourceLabel = r.name;
         draft.setupResourceAddressLabel = r.address ?? null;
         draft.setupResourceVisibility = r.visibility;
+        draft.sportKindCodes = this.resourceSportKindCodes(r);
         draft.step = 1;
         this.setupDrafts.set(sk, draft);
         await this.sendSetupDm(
@@ -4757,12 +4901,16 @@ export class BotUpdate {
           addr = trimmed;
         }
         draft.resourceAddress = addr;
-        draft.step = 3;
+        draft.venuesSubstep = 'sport_kinds_pick';
+        draft.sportKindCodes =
+          draft.sportKindCodes && draft.sportKindCodes.length > 0
+            ? draft.sportKindCodes
+            : this.allSportKindCodesForPicker();
         this.setupDrafts.set(sk, draft);
         await this.sendSetupDm(
           ctx,
-          `${this.setupStepLine(3, draft)}: часовий пояс (слоти будуть у цьому поясі)`,
-          this.setupTzReplyMarkup(),
+          this.botT(this.kb().lang, 'setup.sportKindsTitle'),
+          this.setupSportKindsReplyMarkup(draft.sportKindCodes),
         );
         return;
       }
