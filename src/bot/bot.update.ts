@@ -200,6 +200,22 @@ export class BotUpdate {
     return this.L(resolveUiLang(id));
   }
 
+  private async isBotAdminInGroup(
+    telegram: Context['telegram'],
+    groupChatId: bigint,
+  ): Promise<boolean> {
+    try {
+      const me = await telegram.getMe();
+      const member = await telegram.getChatMember(
+        groupChatId.toString(),
+        me.id,
+      );
+      return member.status === 'creator' || member.status === 'administrator';
+    } catch {
+      return false;
+    }
+  }
+
   private async langForCtx(ctx: Context): Promise<string> {
     if (!ctx.from) {
       return resolveUiLang(null);
@@ -5393,8 +5409,15 @@ export class BotUpdate {
       actorId != null
         ? await this.labelsForUserInGroup(groupChatId, actorId)
         : this.L(UI_FALLBACK_LANGUAGE);
+    if (nu.status === 'administrator') {
+      await ctx.reply(
+        this.botT(actorLbl.lang, 'group.botAddedIntro'),
+        this.groupEntryReplyMarkupForChatUser(actorLbl),
+      );
+      return;
+    }
     await ctx.reply(
-      this.botT(actorLbl.lang, 'group.botAddedIntro'),
+      this.botT(actorLbl.lang, 'group.botNeedsAdmin'),
       this.groupEntryReplyMarkupForChatUser(actorLbl),
     );
   }
@@ -5523,6 +5546,14 @@ export class BotUpdate {
   }): Promise<void> {
     const { telegram, from, groupChatId, chatTitle, deleteTriggerMessage } =
       params;
+    // Ensure admin is present in memberships for this group even if no chat_member event was received.
+    await this.telegramMembers.recordJoin({
+      telegramChatId: groupChatId,
+      telegramUserId: from.id,
+      username: from.username,
+      firstName: from.first_name,
+      lastName: from.last_name,
+    });
     const groupIdStr = groupChatId.toString();
     this.lastSetupGroupByUser.set(from.id, groupIdStr);
     this.resetMenuStateForGroup(groupChatId, from.id);
@@ -5622,6 +5653,17 @@ export class BotUpdate {
       await this.replyTransientInGroup(
         ctx,
         'Лише адміністратор може налаштовувати майданчик.',
+      );
+      return;
+    }
+    if (!(await this.isBotAdminInGroup(ctx.telegram, BigInt(ctx.chat.id)))) {
+      const userLbl = await this.labelsForUserInGroup(
+        BigInt(ctx.chat.id),
+        ctx.from.id,
+      );
+      await this.replyTransientInGroup(
+        ctx,
+        this.botT(userLbl.lang, 'group.botNeedsAdmin'),
       );
       return;
     }

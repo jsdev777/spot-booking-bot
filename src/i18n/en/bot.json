@@ -27,7 +27,8 @@
   },
   "group": {
     "botAddedIntro": "Hello! All menu actions happen in a private chat with the bot.\n\nAdmin: run /setup in this group (next steps in DM).",
-    "startInGroupHint": "The bot menu is available in private messages. Tap “{chatBot}” and open a private chat with me."
+    "startInGroupHint": "The bot menu is available in private messages. Tap “{chatBot}” and open a private chat with me.",
+    "botNeedsAdmin": "For full setup and moderation flows, grant this bot administrator rights in the group."
   },
   "wh": {
     "dayClosed": "Closed",
