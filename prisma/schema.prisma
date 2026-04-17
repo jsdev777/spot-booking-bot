@@ -75,25 +75,30 @@ model CommunityRules {
 
 /// Interface/message language (i18n code, e.g., ISO 639-1)
 model Language {
-  id             String                @id
-  nameNative     String                @map("name_native")
-  memberships    GroupChatMembership[]
-  communityRules CommunityRules[]
+  id                   String                @id
+  nameNative           String                @map("name_native")
+  memberships          GroupChatMembership[]
+  communityRules       CommunityRules[]
+  telegramUsersDefault TelegramUser[]      @relation("TelegramUserDefaultLanguage")
 
   @@map("languages")
 }
 
 /// Telegram user (one account for all of the bot's groups)
 model TelegramUser {
-  id             String                @id @default(uuid())
-  telegramUserId BigInt                @unique @map("telegram_user_id")
-  username       String?               @map("username")
-  firstName      String?               @map("first_name")
-  lastName       String?               @map("last_name")
-  createdAt      DateTime              @default(now()) @map("created_at")
-  updatedAt      DateTime              @updatedAt @map("updated_at")
-  memberships    GroupChatMembership[]
+  id                  String                @id @default(uuid())
+  telegramUserId      BigInt                @unique @map("telegram_user_id")
+  username            String?               @map("username")
+  firstName           String?               @map("first_name")
+  lastName            String?               @map("last_name")
+  /// Default UI language (private /start); overridden per group by GroupChatMembership.languageId
+  defaultLanguageId   String?               @map("default_language_id")
+  defaultLanguage     Language?             @relation("TelegramUserDefaultLanguage", fields: [defaultLanguageId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
+  memberships         GroupChatMembership[]
 
+  @@index([defaultLanguageId])
   @@map("telegram_users")
 }
 
