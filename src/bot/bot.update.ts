@@ -2100,6 +2100,33 @@ export class BotUpdate {
     }
   }
 
+  private escapeHtml(s: string): string {
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  private telegramUserHtmlLink(telegramUserId: number, label: string): string {
+    const safe = this.escapeHtml(label);
+    return `<a href="tg://user?id=${telegramUserId}">${safe}</a>`;
+  }
+
+  private lookingJoinParticipantLabel(
+    lang: string,
+    from: NonNullable<Context['from']>,
+  ): string {
+    const u = from.username?.trim();
+    if (u) {
+      return `@${u}`;
+    }
+    const fn = from.first_name?.trim();
+    if (fn) {
+      return fn;
+    }
+    return this.botT(lang, 'book.adminPlayerFallback');
+  }
+
   private formatLookingSlotDmText(params: {
     dm: {
       resourceName: string;
@@ -2110,13 +2137,17 @@ export class BotUpdate {
       sportNameUa: string;
     };
     yourPeopleCount: number;
+    organizer: {
+      telegramUserId: number;
+      storedDisplayName: string | null;
+    };
   }): string {
-    const { dm, yourPeopleCount } = params;
+    const { dm, yourPeopleCount, organizer } = params;
     const lang = this.kb().lang;
     const day = formatInTimeZone(dm.startTime, dm.timeZone, 'dd.MM.yyyy');
     const a = formatInTimeZone(dm.startTime, dm.timeZone, 'HH:mm');
     const z = formatInTimeZone(dm.endTime, dm.timeZone, 'HH:mm');
-    const addr = dm.address?.trim()
+    const addrRaw = dm.address?.trim()
       ? dm.address.trim()
       : this.botT(lang, 'slotDm.addressUnknown');
     const peopleLine =
@@ -2126,12 +2157,19 @@ export class BotUpdate {
             n: String(yourPeopleCount),
           });
     const when = `${day} ${a}–${z} (${dm.timeZone})`;
+    const orgLabel =
+      organizer.storedDisplayName?.trim() ||
+      this.botT(lang, 'slotDm.organizerUnknown');
+    const organizerLine = this.botT(lang, 'slotDm.organizerLine', {
+      link: this.telegramUserHtmlLink(organizer.telegramUserId, orgLabel),
+    });
     return this.botT(lang, 'slotDm.full', {
-      peopleLine,
-      resource: dm.resourceName,
-      address: addr,
-      when,
-      sport: dm.sportNameUa,
+      organizerLine,
+      peopleLine: this.escapeHtml(peopleLine),
+      resource: this.escapeHtml(dm.resourceName),
+      address: this.escapeHtml(addrRaw),
+      when: this.escapeHtml(when),
+      sport: this.escapeHtml(dm.sportNameUa),
     });
   }
 
@@ -2140,6 +2178,10 @@ export class BotUpdate {
     bookingId: string,
     joinResult: {
       previousDmMessageId: number | null;
+      organizer: {
+        telegramUserId: number;
+        storedDisplayName: string | null;
+      };
       dm: {
         resourceName: string;
         address: string | null;
@@ -2158,10 +2200,13 @@ export class BotUpdate {
     const text = this.formatLookingSlotDmText({
       dm: joinResult.dm,
       yourPeopleCount: joinResult.yourPeopleCount,
+      organizer: joinResult.organizer,
     });
     let sentId: number;
     try {
-      const sent = await ctx.telegram.sendMessage(userId, text);
+      const sent = await ctx.telegram.sendMessage(userId, text, {
+        parse_mode: 'HTML',
+      });
       sentId = sent.message_id;
     } catch (e) {
       this.logger.warn(
@@ -2183,6 +2228,74 @@ export class BotUpdate {
       } catch {
         /* уже удалено или нет прав */
       }
+    }
+  }
+
+  private async notifyOrganizerOfLookingJoin(params: {
+    ctx: Context;
+    groupChatId: bigint;
+    joinResult: {
+      organizer: {
+        telegramUserId: number;
+        storedDisplayName: string | null;
+      };
+      dm: {
+        resourceName: string;
+        address: string | null;
+        timeZone: string;
+        startTime: Date;
+        endTime: Date;
+        sportNameUa: string;
+      };
+      yourPeopleCount: number;
+    };
+    joiner: NonNullable<Context['from']>;
+  }) {
+    const { organizer, dm, yourPeopleCount } = params.joinResult;
+    if (params.joiner.id === organizer.telegramUserId) {
+      return;
+    }
+    const lang = await this.langForDmUser(
+      organizer.telegramUserId,
+      params.groupChatId,
+    );
+    const participantLabel = this.lookingJoinParticipantLabel(
+      lang,
+      params.joiner,
+    );
+    const participantLink = this.telegramUserHtmlLink(
+      params.joiner.id,
+      participantLabel,
+    );
+    const peopleThemLine =
+      yourPeopleCount === 1
+        ? this.botT(lang, 'slotDm.peopleThemOne')
+        : this.botT(lang, 'slotDm.peopleThemMany', {
+            n: String(yourPeopleCount),
+          });
+    const day = formatInTimeZone(dm.startTime, dm.timeZone, 'dd.MM.yyyy');
+    const a = formatInTimeZone(dm.startTime, dm.timeZone, 'HH:mm');
+    const z = formatInTimeZone(dm.endTime, dm.timeZone, 'HH:mm');
+    const addrRaw = dm.address?.trim()
+      ? dm.address.trim()
+      : this.botT(lang, 'slotDm.addressUnknown');
+    const when = `${day} ${a}–${z} (${dm.timeZone})`;
+    const text = this.botT(lang, 'slotDm.organizerJoinNotify', {
+      participantLink,
+      peopleThemLine: this.escapeHtml(peopleThemLine),
+      resource: this.escapeHtml(dm.resourceName),
+      address: this.escapeHtml(addrRaw),
+      when: this.escapeHtml(when),
+      sport: this.escapeHtml(dm.sportNameUa),
+    });
+    try {
+      await params.ctx.telegram.sendMessage(organizer.telegramUserId, text, {
+        parse_mode: 'HTML',
+      });
+    } catch (e) {
+      this.logger.warn(
+        `organizer looking-join DM failed user=${organizer.telegramUserId}: ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
   }
 
@@ -2250,6 +2363,12 @@ export class BotUpdate {
     }
 
     await this.sendLookingSlotDm(ctx, bookingId, joinResult);
+    await this.notifyOrganizerOfLookingJoin({
+      ctx,
+      groupChatId: chatId,
+      joinResult,
+      joiner: ctx.from!,
+    });
 
     const rows = await this.booking.listOpenLookingSlots({
       telegramChatId: chatId,

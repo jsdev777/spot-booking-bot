@@ -819,6 +819,11 @@ export class BookingService {
     yourPeopleCount: number;
     /** The previous private message regarding this reservation — delete it before posting a new message. */
     previousDmMessageId: number | null;
+    organizer: {
+      telegramUserId: number;
+      /** Display name stored when the booking was created (username or first name). */
+      storedDisplayName: string | null;
+    };
     dm: {
       resourceName: string;
       address: string | null;
@@ -902,10 +907,15 @@ export class BookingService {
         where: { id: b.id },
         include: { resource: true, sportKind: true },
       });
+      const stored = full.userName?.trim() ?? '';
       return {
         remainingPlayers,
         yourPeopleCount: part.peopleCount,
         previousDmMessageId,
+        organizer: {
+          telegramUserId: Number(full.userId),
+          storedDisplayName: stored.length > 0 ? stored : null,
+        },
         dm: {
           resourceName: full.resource.name,
           address: full.resource.address,
