@@ -1,0 +1,225 @@
+{
+  "menu": {
+    "book": "Book",
+    "list": "My bookings",
+    "grid": "Day schedule",
+    "freeSlots": "Open spots",
+    "setup": "Settings",
+    "chatBot": "Bot chat",
+    "switchGroup": "Switch group",
+    "back": "« Back",
+    "main": "Main menu",
+    "whPerDay": "Set hours by weekday",
+    "whSkip": "Skip",
+    "whDoneToMenu": "Done — menu",
+    "dayToday": "Today",
+    "dayTomorrow": "Tomorrow",
+    "title": "Main menu:",
+    "titleForGroup": "Main menu for this group:",
+    "changeLanguage": "Change language",
+    "languageChanged": "Language updated.",
+    "changeLanguagePickGroup": "Pick a community first (use “Switch group”) to change the language for that community.",
+    "changeLanguageFailed": "Could not open the language picker. Please try again."
+  },
+  "groupWelcome": {
+    "ready": "Welcome!\n\nTap “{chatBot}” to use the menu in a private chat with the bot.",
+    "notReady": "Welcome!\n\nThe venue is not set up yet. Admin: run /setup."
+  },
+  "group": {
+    "botAddedIntro": "Hello! All menu actions happen in a private chat with the bot.\n\nAdmin: run /setup in this group (next steps in DM).",
+    "startInGroupHint": "The bot menu is available in private messages. Tap “{chatBot}” and open a private chat with me."
+  },
+  "wh": {
+    "dayClosed": "Closed",
+    "daySetHours": "Set hours"
+  },
+  "book": {
+    "lookingYes": "Yes",
+    "lookingNo": "No",
+    "pickSport": "Choose a sport:",
+    "pickDay": "Choose a day:",
+    "pickDayGrid": "Schedule for which day?",
+    "pickNumberFromList": "Pick a number from the list.",
+    "pickStartToday": "Today — choose start time:",
+    "pickStartTomorrow": "Tomorrow — choose start time:",
+    "noFreeIntervals": "No free slots available.",
+    "noMatchingDuration": "No matching duration right now. Choose another day.",
+    "pickDuration": "Start {time} — choose duration:",
+    "askLookingForPartners": "Looking for partners for this booking?",
+    "pickResource": "Choose a venue:",
+    "pickResourceGrid": "Schedule — choose a venue:",
+    "slotUnavailable": "This time is unavailable.",
+    "noResourcesAskAdmin": "No bookable venues. Ask an admin to run /setup.",
+    "myBookingsEmpty": "No unfinished bookings in this chat.",
+    "myBookingsIntro": "Your unfinished bookings — tap a row with date and time to cancel:",
+    "freeSlotsEmpty": "No one is looking for partners for upcoming games in this group right now.",
+    "freeSlotsIntro": "Open spots — tap a row to join the game (the list will refresh):",
+    "platformNotConfigured": "The platform is not set up or there are no active venues. Admin: /setup.",
+    "venueNotConfigured": "Venue is not set up or there are no active courts. Admin: /setup.",
+    "venueNotConfiguredShort": "Venue is not configured. Admin: /setup.",
+    "groupNotConfigured": "This group is not set up yet. Admin: /setup in the group.",
+    "slotTaken": "This slot was just taken. Pick another time.",
+    "bookingWindowClosed": "Outside the booking window for participants. Try later or contact an admin.",
+    "dailyLimitExceeded": "Daily booking limit exceeded in this group. Pick another day or shorten the duration.",
+    "noDurationForThisSlot": "No matching duration for this start time. Pick another day.",
+    "timeSlotInPastPickDay": "This time has already passed. Pick another day.",
+    "bookingAdded": "Booking added: «{resource}», {timeFrom}–{timeTo}{looking}",
+    "bookingAddedLooking": ". Looking for partners: need {n} more.",
+    "bookingCancelled": "Booking cancelled.",
+    "listCancelNotFound": "Booking was not found or is already cancelled.",
+    "lookingTapYesNo": "Tap “Yes” or “No”.",
+    "askPlayersCount": "How many people are you looking for? Enter a whole number from 1 to 50.",
+    "playersCountInvalid": "Enter a whole number from 1 to 50.",
+    "createBookingFailed": "Could not create the booking. Please try again."
+  },
+  "msg": {
+    "noSlotsBookingWindow": "Booking is not available right now."
+  },
+  "rules": {
+    "accept": "I accept the rules",
+    "welcomeIntro": "Welcome! Please read the community rules before you start.\n\nAfter reading, tap the accept button below the last message.\n\n—\n\n",
+    "openBotForRules": "To read and confirm the rules, open the bot in a private chat and tap Start.",
+    "openBotButton": "Open bot",
+    "languagePickerIntro": "Choose your preferred language / Оберіть бажану мову:",
+    "languageSaved": "✅ Language saved. / Мову збережено.",
+    "chooseLanguageInDm": "Оберіть мову в приватному повідомленні від бота / Choose language in the bot DM.",
+    "rulesSentToDmPing": "Community rules were sent to you in a private message from the bot. Open the chat with the bot (tap Start if needed) and confirm using the button below.",
+    "rulesSaved": "Group rules saved ({lang})."
+  },
+  "onboarding": {
+    "needLanguageRulesDm": "First choose your language and accept the community rules in the bot chat (buttons were sent in DM or in the group).",
+    "needLanguageRulesGroup": "First choose your language and accept the community rules (buttons in DM or in the group).",
+    "needLanguageRulesGroupShort": "First choose your language and accept the community rules (buttons in DM or in the group)."
+  },
+  "dm": {
+    "cannotWriteOpenStart": "I cannot DM you. Open a chat with me, tap Start, then tap “Bot chat” in the group again.",
+    "cannotWriteOpenStartShort": "I cannot DM you. Open a chat with me, tap Start, and try again.",
+    "noGroupsFound": "No groups found. Add the bot to a group or tap “Bot chat” in the group you need.",
+    "pickGroupHint": "Pick the group to use for actions:",
+    "groupFallback": "Group {id}"
+  },
+  "setup": {
+    "useChatTitle": "Same as chat title",
+    "keepBotName": "Keep current name",
+    "keepAddress": "Keep address unchanged",
+    "noAddress": "No address",
+    "cancel": "« Cancel",
+    "venues": "All venues",
+    "groupRules": "Group rules",
+    "allBookings": "All bookings",
+    "bookingWindow": "Group booking hours",
+    "bookingLimit": "Booking limit",
+    "newResource": "➕ Add venue",
+    "linkExistingResource": "Link existing venue",
+    "resourceActive": "Active",
+    "resourceInactive": "Inactive",
+    "deleteResource": "Delete",
+    "confirmDeleteResource": "Confirm delete",
+    "hubHint": "«{venues}» — venues, «{groupRules}» — rules text for new members, «{allBookings}» — view bookings in the group, «{linkExisting}» — link an existing venue, «{bookingWindow}» — when members can book, «{bookingLimit}» — per-user hours per weekday.",
+    "dmSessionIntroParagraph": "Group settings for «{title}». From now on, write only here — group members will not see these messages.",
+    "hubPrompt": "{intro}\n\n{hint}",
+    "step1NewResource": "Step 1/{stepMax}: How should the new venue be named in the bot?\n\nSend one message with the name (non-empty, up to 200 characters).",
+    "step1FromChatTitle": "Step 1/{stepMax}: How should this venue be named in the bot?\nThe Telegram chat title is «{chatTitle}»; you can replace it using the button below.\n\nSend your name in a message or tap a button.",
+    "step1RenameExisting": "Step 1/{stepMax}: How should this venue be named in the bot?\nIt is currently named «{existingName}» in the bot.\n\nSend a new name in a message or tap «{keepBotName}» to leave the bot name unchanged.",
+    "step2AddressWithCurrent": "Step 2/{stepMax}: venue address — shown in parentheses next to the name when picking.\nCurrently in the bot: «{current}».\n\nSend a new address in a message, «{keepAddress}» or «{noAddress}» to remove the address.",
+    "step2AddressEmpty": "Step 2/{stepMax}: venue address (optional — in parentheses next to the name).\nNo address is set yet.\n\nSend a text message or tap «{noAddress}» to skip.",
+    "wizardAlreadyOpen": "Setup is already open — reply to the wizard above or tap {cancel}.",
+    "pickGroupForSetup": "Pick a group to configure:",
+    "adminOnly": "Only an administrator can open settings.",
+    "stepLine": "Step {step}/{max}",
+    "noLanguagesInDb": "No languages found. Add rows to the languages table.",
+    "pickNumberOrNew": "Pick a number from the list or tap “{newResource}”.",
+    "pickWeekdayOrBack": "Pick a weekday or «{back}».",
+    "limitHoursTitle": "{weekday}: current limit {current}.\n\n",
+    "limitHoursPrompt": "Pick a limit (hours per user on this day) or «{unlimited}»:",
+    "limitUnlimitedValue": "unlimited",
+    "limitZeroBlocked": "0 h (blocked)",
+    "limitHoursOption": "{hours} h",
+    "adminPlayerFallback": "Player",
+    "adminCancelSuffix": " · Cancel?",
+    "whPerDayStartPrompt": "{day}: choose slot start time (nearest allowed slot start).",
+    "whPerDayEndPrompt": "{day}: what end time should everything finish (opening: {hour}:00)?",
+    "whPerDaySaved": "Saved: {day} — slots from {start}:00. Pick another day or «{done}».",
+    "continueInDmOnly": "Continue setup in private messages with me — replies are not shown in the group.",
+    "openSetupFailedFromGroup": "Could not open settings. Try again from the group: /setup.",
+    "openSetupFailedRetry": "Could not open settings. Please try again.",
+    "chatTitleFallback": "Chat",
+    "pickOptionFromList": "Pick an option from the list.",
+    "limitHoursAllowedRange": "Allowed: 0–24 hours or «No limit».",
+    "limitHoursLongIntro": "Maximum booking hours per account on this weekday, per venue. Checks use the weekday and calendar start date in that venue’s time zone.",
+    "limitPickShort": "Pick a limit:",
+    "limitsWeekdayPickerTitle": "Per-weekday booking limits.\n\n{summary}\n\nPick a weekday:",
+    "limitsSavedPickWeekday": "Saved. Current limits:\n\n{summary}\n\nPick another weekday or «{back}» to return to the hub.",
+    "persistSetupFailed": "Could not save settings. Please try again.",
+    "persistSetupFailedRetryGroup": "Could not save settings. Run /setup in the group again."
+  },
+  "limit": {
+    "unlimited": "No limit"
+  },
+  "bw": {
+    "endMidnight": "24:00 — end of day"
+  },
+  "sport": {
+    "TENNIS": "Tennis",
+    "FOOTBALL": "Football",
+    "BASKETBALL": "Basketball",
+    "VOLLEYBALL": "Volleyball"
+  },
+  "duration": {
+    "h60": "1 h",
+    "m90": "1.5 h",
+    "h120": "2 h"
+  },
+  "list": {
+    "cancelSuffix": " · Cancel?"
+  },
+  "freeSlot": {
+    "morePlayers": "{n} more",
+    "gameFull": "This game is full or the slot is no longer available.",
+    "listStale": "The list was outdated and has been refreshed. Pick a slot again:",
+    "joinedNoMoreOpenings": "You are on the roster. Game details were sent in a private message. There are no more open spots for this listing.",
+    "joinedSeeDmOrMenu": "You are on the roster. When and where to meet — in a private message from me. You can pick another open spot or «Main menu»:"
+  },
+  "slotDm": {
+    "peopleYou": "From your side we count 1 person (you).",
+    "peopleMany": "From your side we count {n} people.",
+    "addressUnknown": "not specified — ask the organizer in the group",
+    "full": "You are on the participant list.\n\n{peopleLine}\n\nVenue: «{resource}»\nAddress: {address}\nWhen: {when}\nSport: {sport}\n\nKeep this chat — reminders may arrive here."
+  },
+  "whDm": {
+    "menuPlain": "Menu:",
+    "allDaysUnchanged": "OK — all weekdays stay as saved.",
+    "noAdmin": "You are not an administrator in this group.",
+    "pickWeekdayPreamble": "Pick a weekday (Mon = Monday). Changes save immediately.",
+    "skipOrPerDayFirst": "First tap «Skip» or «Set hours by weekday».",
+    "pickDayOrDone": "Pick a day with a button or «Done — menu».",
+    "pickWeekday": "Pick a weekday:",
+    "noPermission": "No permission.",
+    "saveFailed": "Could not save.",
+    "dayClosedSaved": "Saved: closed day. Pick another day or «Done — menu».",
+    "dayRowHint": "«Closed» — no slots. «Set hours» — same as in /setup.",
+    "tapBottomButton": "Tap one of the buttons below.",
+    "pickOpeningByButtons": "Pick opening time using the buttons (00:00–22:00).",
+    "pickOpeningRangeInline": "Pick opening time between 00:00 and 22:00.",
+    "pickEndByButtons": "Pick end time using the buttons.",
+    "endAfterStart": "End time must be after start time. Pick another time.",
+    "genericSaveFailedRetry": "Could not save. Please try again.",
+    "statusClosedNow": "Currently: closed.",
+    "statusSlotsNow": "Currently: slots from {start}:00 to {end}:30."
+  },
+  "resource": {
+    "inactiveMark": "Inactive"
+  },
+  "weekdayIso": {
+    "1": "Mon",
+    "2": "Tue",
+    "3": "Wed",
+    "4": "Thu",
+    "5": "Fri",
+    "6": "Sat",
+    "7": "Sun"
+  },
+  "reminder": {
+    "upcoming": "Reminder: the game starts in 15 minutes! {place}, starts at {time}"
+  }
+}

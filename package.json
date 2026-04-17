@@ -36,6 +36,7 @@
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "dotenv": "^17.4.0",
+    "nestjs-i18n": "^10.6.5",
     "nestjs-telegraf": "^2.9.1",
     "pg": "^8.20.0",
     "prom-client": "^15.1.3",

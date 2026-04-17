@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { resolveCommunityRulesText } from './community.service';
 
 const IN_CHAT_STATUSES = new Set([
   'creator',
@@ -9,7 +10,9 @@ const IN_CHAT_STATUSES = new Set([
 ]);
 
 export type RecordJoinResult = {
-  /** Display the rules and wait for the button (new chat entry). */
+  /** User must pick a per-group UI language (no membership.languageId and no TelegramUser.defaultLanguageId). */
+  pendingLanguageSelection: boolean;
+  /** Display the rules and wait for the button (language already chosen). */
   pendingGroupRules: boolean;
   rulesText: string | null;
 };
@@ -17,15 +20,6 @@ export type RecordJoinResult = {
 @Injectable()
 export class TelegramMembersService {
   constructor(private readonly prisma: PrismaService) {}
-
-  async getGroupRulesText(telegramChatId: bigint): Promise<string | null> {
-    const comm = await this.prisma.community.findUnique({
-      where: { telegramChatId },
-      include: { rules: true },
-    });
-    const rulesText = comm?.rules?.text?.trim() ?? '';
-    return rulesText.length > 0 ? rulesText : null;
-  }
 
   async listActiveUserCommunities(telegramUserId: number): Promise<
     {
@@ -51,6 +45,233 @@ export class TelegramMembersService {
     }));
   }
 
+  async getMembershipLanguageId(params: {
+    telegramChatId: bigint;
+    telegramUserId: number;
+  }): Promise<string | null> {
+    const user = await this.prisma.telegramUser.findUnique({
+      where: { telegramUserId: BigInt(params.telegramUserId) },
+      select: { id: true },
+    });
+    if (!user) {
+      return null;
+    }
+    const m = await this.prisma.groupChatMembership.findUnique({
+      where: {
+        telegramChatId_userId: {
+          telegramChatId: params.telegramChatId,
+          userId: user.id,
+        },
+      },
+      select: { languageId: true },
+    });
+    return m?.languageId ?? null;
+  }
+
+  /**
+   * UI language for this user in a chat context: membership override, else user default, else null (caller uses resolveUiLang).
+   */
+  async getEffectiveLanguageId(params: {
+    telegramChatId: bigint | null;
+    telegramUserId: number;
+  }): Promise<string | null> {
+    const user = await this.prisma.telegramUser.findUnique({
+      where: { telegramUserId: BigInt(params.telegramUserId) },
+      select: { id: true, defaultLanguageId: true },
+    });
+    if (!user) {
+      return null;
+    }
+    if (params.telegramChatId == null) {
+      return user.defaultLanguageId ?? null;
+    }
+    const m = await this.prisma.groupChatMembership.findUnique({
+      where: {
+        telegramChatId_userId: {
+          telegramChatId: params.telegramChatId,
+          userId: user.id,
+        },
+      },
+      select: { languageId: true },
+    });
+    return m?.languageId ?? user.defaultLanguageId ?? null;
+  }
+
+  async upsertTelegramUser(params: {
+    telegramUserId: number;
+    username?: string;
+    firstName?: string;
+    lastName?: string;
+  }): Promise<{ defaultLanguageId: string | null }> {
+    const u = await this.prisma.telegramUser.upsert({
+      where: { telegramUserId: BigInt(params.telegramUserId) },
+      create: {
+        telegramUserId: BigInt(params.telegramUserId),
+        username: params.username ?? null,
+        firstName: params.firstName ?? null,
+        lastName: params.lastName ?? null,
+      },
+      update: {
+        username: params.username ?? null,
+        firstName: params.firstName ?? null,
+        lastName: params.lastName ?? null,
+      },
+      select: { defaultLanguageId: true },
+    });
+    return { defaultLanguageId: u.defaultLanguageId };
+  }
+
+  async setUserDefaultLanguage(params: {
+    telegramUserId: number;
+    languageId: string;
+    username?: string;
+    firstName?: string;
+    lastName?: string;
+  }): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const lang = await this.prisma.language.findUnique({
+      where: { id: params.languageId },
+      select: { id: true },
+    });
+    if (!lang) {
+      return { ok: false, reason: 'bad_language' };
+    }
+    await this.prisma.telegramUser.upsert({
+      where: { telegramUserId: BigInt(params.telegramUserId) },
+      create: {
+        telegramUserId: BigInt(params.telegramUserId),
+        username: params.username ?? null,
+        firstName: params.firstName ?? null,
+        lastName: params.lastName ?? null,
+        defaultLanguageId: params.languageId,
+      },
+      update: {
+        defaultLanguageId: params.languageId,
+        username: params.username ?? null,
+        firstName: params.firstName ?? null,
+        lastName: params.lastName ?? null,
+      },
+    });
+    return { ok: true };
+  }
+
+  async listLanguagesForPicker(): Promise<
+    { id: string; nameNative: string }[]
+  > {
+    return this.prisma.language.findMany({
+      orderBy: { id: 'asc' },
+      select: { id: true, nameNative: true },
+    });
+  }
+
+  async setMembershipLanguage(params: {
+    telegramChatId: bigint;
+    telegramUserId: number;
+    languageId: string;
+  }): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const lang = await this.prisma.language.findUnique({
+      where: { id: params.languageId },
+      select: { id: true },
+    });
+    if (!lang) {
+      return { ok: false, reason: 'bad_language' };
+    }
+    const user = await this.prisma.telegramUser.findUnique({
+      where: { telegramUserId: BigInt(params.telegramUserId) },
+      select: { id: true },
+    });
+    if (!user) {
+      return { ok: false, reason: 'no_user' };
+    }
+    const comm = await this.prisma.community.findUnique({
+      where: {
+        telegramChatId: params.telegramChatId,
+      },
+      select: { id: true },
+    });
+    await this.prisma.groupChatMembership.upsert({
+      where: {
+        telegramChatId_userId: {
+          telegramChatId: params.telegramChatId,
+          userId: user.id,
+        },
+      },
+      create: {
+        telegramChatId: params.telegramChatId,
+        userId: user.id,
+        communityId: comm?.id ?? null,
+        languageId: params.languageId,
+        groupRulesAccepted: false,
+        isActive: true,
+        leftAt: null,
+      },
+      update: {
+        languageId: params.languageId,
+        isActive: true,
+        leftAt: null,
+        joinedAt: new Date(),
+        ...(comm ? { communityId: comm.id } : {}),
+      },
+    });
+    return { ok: true };
+  }
+
+  /**
+   * In a configured community, regular members must pick a language before rules/menu.
+   */
+  async participantMustPickLanguage(params: {
+    telegramChatId: bigint;
+    telegramUserId: number;
+  }): Promise<boolean> {
+    const comm = await this.prisma.community.findUnique({
+      where: { telegramChatId: params.telegramChatId },
+      select: { id: true },
+    });
+    if (!comm) {
+      return false;
+    }
+    const user = await this.prisma.telegramUser.findUnique({
+      where: { telegramUserId: BigInt(params.telegramUserId) },
+      select: { id: true, defaultLanguageId: true },
+    });
+    if (!user) {
+      return false;
+    }
+    const m = await this.prisma.groupChatMembership.findUnique({
+      where: {
+        telegramChatId_userId: {
+          telegramChatId: params.telegramChatId,
+          userId: user.id,
+        },
+      },
+      select: { isActive: true, languageId: true },
+    });
+    if (!m?.isActive) {
+      return false;
+    }
+    return m.languageId == null && user.defaultLanguageId == null;
+  }
+
+  async getGroupRulesText(
+    telegramChatId: bigint,
+    telegramUserId?: number,
+  ): Promise<string | null> {
+    const comm = await this.prisma.community.findUnique({
+      where: { telegramChatId },
+      include: { rules: true },
+    });
+    if (!comm) {
+      return null;
+    }
+    const preferredLanguageId =
+      telegramUserId == null
+        ? null
+        : await this.getEffectiveLanguageId({
+            telegramChatId,
+            telegramUserId,
+          });
+    return resolveCommunityRulesText(comm.rules, preferredLanguageId);
+  }
+
   /** A user is considered to be in the chat if they have one of these chat_member statuses. */
   static isStatusInChat(status: string): boolean {
     return IN_CHAT_STATUSES.has(status);
@@ -68,13 +289,12 @@ export class TelegramMembersService {
       where: { telegramChatId: params.telegramChatId },
       include: { rules: true },
     });
-    const rulesText = comm?.rules?.text?.trim() ?? '';
-    if (!comm || rulesText.length === 0) {
+    if (!comm) {
       return false;
     }
     const user = await this.prisma.telegramUser.findUnique({
       where: { telegramUserId: BigInt(params.telegramUserId) },
-      select: { id: true },
+      select: { id: true, defaultLanguageId: true },
     });
     if (!user) {
       return false;
@@ -86,8 +306,17 @@ export class TelegramMembersService {
           userId: user.id,
         },
       },
+      select: { isActive: true, groupRulesAccepted: true, languageId: true },
     });
     if (!m?.isActive) {
+      return false;
+    }
+    const effectiveLang = m.languageId ?? user.defaultLanguageId ?? null;
+    if (!effectiveLang) {
+      return false;
+    }
+    const resolved = resolveCommunityRulesText(comm.rules, effectiveLang);
+    if (!resolved) {
       return false;
     }
     return !m.groupRulesAccepted;
@@ -101,13 +330,9 @@ export class TelegramMembersService {
       where: { telegramChatId: params.telegramChatId },
       include: { rules: true },
     });
-    const rulesText = comm?.rules?.text?.trim() ?? '';
-    if (!comm || rulesText.length === 0) {
-      return { ok: false, reason: 'no_rules' };
-    }
     const user = await this.prisma.telegramUser.findUnique({
       where: { telegramUserId: BigInt(params.telegramUserId) },
-      select: { id: true },
+      select: { id: true, defaultLanguageId: true },
     });
     if (!user) {
       return { ok: false, reason: 'no_user' };
@@ -119,12 +344,32 @@ export class TelegramMembersService {
           userId: user.id,
         },
       },
+      select: {
+        isActive: true,
+        languageId: true,
+        groupRulesAccepted: true,
+      },
     });
     if (!m?.isActive) {
       return { ok: false, reason: 'not_member' };
     }
+    const effectiveLang = m.languageId ?? user.defaultLanguageId ?? null;
+    if (!effectiveLang) {
+      return { ok: false, reason: 'no_language' };
+    }
+    const resolved = comm
+      ? resolveCommunityRulesText(comm.rules, effectiveLang)
+      : null;
+    if (!comm || !resolved) {
+      return { ok: false, reason: 'no_rules' };
+    }
     await this.prisma.groupChatMembership.update({
-      where: { id: m.id },
+      where: {
+        telegramChatId_userId: {
+          telegramChatId: params.telegramChatId,
+          userId: user.id,
+        },
+      },
       data: {
         groupRulesAccepted: true,
         communityId: comm.id,
@@ -144,8 +389,7 @@ export class TelegramMembersService {
       where: { telegramChatId: params.telegramChatId },
       include: { rules: true },
     });
-    const rulesBody = comm?.rules?.text?.trim() ?? '';
-    const hasRules = Boolean(comm && rulesBody.length > 0);
+    const hasRules = (comm?.rules ?? []).some((r) => r.text.trim().length > 0);
 
     await this.prisma.$transaction(async (tx) => {
       const user = await tx.telegramUser.upsert({
@@ -265,18 +509,30 @@ export class TelegramMembersService {
     });
 
     if (!comm) {
-      return { pendingGroupRules: false, rulesText: null };
+      return {
+        pendingLanguageSelection: false,
+        pendingGroupRules: false,
+        rulesText: null,
+      };
     }
     if (!hasRules) {
-      return { pendingGroupRules: false, rulesText: null };
+      return {
+        pendingLanguageSelection: false,
+        pendingGroupRules: false,
+        rulesText: null,
+      };
     }
 
     const userRow = await this.prisma.telegramUser.findUnique({
       where: { telegramUserId: BigInt(params.telegramUserId) },
-      select: { id: true },
+      select: { id: true, defaultLanguageId: true },
     });
     if (!userRow) {
-      return { pendingGroupRules: false, rulesText: null };
+      return {
+        pendingLanguageSelection: false,
+        pendingGroupRules: false,
+        rulesText: null,
+      };
     }
     const m = await this.prisma.groupChatMembership.findUnique({
       where: {
@@ -285,11 +541,33 @@ export class TelegramMembersService {
           userId: userRow.id,
         },
       },
+      select: {
+        groupRulesAccepted: true,
+        languageId: true,
+        isActive: true,
+      },
     });
-    if (m?.groupRulesAccepted) {
-      return { pendingGroupRules: false, rulesText: null };
-    }
-    return { pendingGroupRules: true, rulesText: rulesBody };
+
+    const pendingLanguageSelection = Boolean(
+      comm && !m?.languageId && m?.isActive && !userRow.defaultLanguageId,
+    );
+    const effectiveLang = m?.languageId ?? userRow.defaultLanguageId ?? null;
+    const resolvedRulesText =
+      effectiveLang && hasRules
+        ? resolveCommunityRulesText(comm.rules, effectiveLang)
+        : null;
+    const pendingGroupRules =
+      m != null &&
+      !m.groupRulesAccepted &&
+      hasRules &&
+      Boolean(resolvedRulesText);
+    const rulesText = pendingGroupRules ? resolvedRulesText : null;
+
+    return {
+      pendingLanguageSelection,
+      pendingGroupRules,
+      rulesText,
+    };
   }
 
   async recordLeave(params: {

@@ -1,9 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { formatInTimeZone } from 'date-fns-tz';
+import { I18nService } from 'nestjs-i18n';
 import { InjectBot } from 'nestjs-telegraf';
 import { Context, Telegraf } from 'telegraf';
 import { BookingStatus, Prisma } from '@prisma/client';
+import { TelegramMembersService } from '../community/telegram-members.service';
+import { resolveUiLang } from '../i18n/resolve-ui-lang';
 import { MetricsService } from '../metrics/metrics.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -14,6 +17,7 @@ type BookingReminder = Prisma.BookingGetPayload<{
   include: {
     resource: true;
     lookingParticipants: true;
+    communityResource: { include: { community: true } };
   };
 }>;
 
@@ -26,7 +30,27 @@ export class ReminderService {
     private readonly prisma: PrismaService,
     @InjectBot() private readonly bot: Telegraf<Context>,
     private readonly metrics: MetricsService,
+    private readonly telegramMembers: TelegramMembersService,
+    private readonly i18n: I18nService,
   ) {}
+
+  private async uiLangInCommunity(
+    telegramChatId: bigint,
+    telegramUserId: number,
+  ): Promise<string> {
+    const id = await this.telegramMembers.getEffectiveLanguageId({
+      telegramChatId,
+      telegramUserId,
+    });
+    return resolveUiLang(id);
+  }
+
+  private reminderText(lang: string, place: string, localTime: string): string {
+    return this.i18n.t('bot.reminder.upcoming' as never, {
+      lang,
+      args: { place, time: localTime },
+    });
+  }
 
   private async sendMessageWithBackoff(
     telegramUserId: number,
@@ -87,6 +111,7 @@ export class ReminderService {
         include: {
           resource: true,
           lookingParticipants: true,
+          communityResource: { include: { community: true } },
         },
       });
     } catch (e) {
@@ -109,8 +134,13 @@ export class ReminderService {
       const tz = b.resource.timeZone;
       const localTime = formatInTimeZone(b.startTime, tz, 'HH:mm');
       const place = b.resource.name;
-      const text = `Нагадування: Гра розпочнеться за 15 хвилин! ${place}, початок в ${localTime}`;
+      const groupChatId = b.communityResource.community.telegramChatId;
       const organizerId = Number(b.userId);
+      const organizerLang = await this.uiLangInCommunity(
+        groupChatId,
+        organizerId,
+      );
+      const organizerText = this.reminderText(organizerLang, place, localTime);
 
       const participantTargets = b.lookingParticipants
         .filter((p) => !p.reminderSent)
@@ -121,13 +151,19 @@ export class ReminderService {
       const batches: Array<
         Array<{ participantId: string; telegramUserId: number }>
       > = [];
-      for (let i = 0; i < participantTargets.length; i += REMINDER_SEND_CONCURRENCY) {
-        batches.push(participantTargets.slice(i, i + REMINDER_SEND_CONCURRENCY));
+      for (
+        let i = 0;
+        i < participantTargets.length;
+        i += REMINDER_SEND_CONCURRENCY
+      ) {
+        batches.push(
+          participantTargets.slice(i, i + REMINDER_SEND_CONCURRENCY),
+        );
       }
 
       if (!b.reminderSent) {
         try {
-          await this.sendMessageWithBackoff(organizerId, text);
+          await this.sendMessageWithBackoff(organizerId, organizerText);
           await this.prisma.booking.update({
             where: { id: b.id },
             data: { reminderSent: true },
@@ -168,7 +204,12 @@ export class ReminderService {
               return;
             }
             try {
-              await this.sendMessageWithBackoff(telegramUserId, text);
+              const pLang = await this.uiLangInCommunity(
+                groupChatId,
+                telegramUserId,
+              );
+              const pText = this.reminderText(pLang, place, localTime);
+              await this.sendMessageWithBackoff(telegramUserId, pText);
               await this.prisma.bookingLookingParticipant.update({
                 where: { id: participantId },
                 data: { reminderSent: true },
