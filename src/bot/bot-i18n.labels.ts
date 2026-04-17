@@ -106,7 +106,7 @@ export function sportLabelToCodeMap(
   const lang = resolveUiLang(languageId);
   const m = new Map<string, SportKindCode>();
   for (const code of SPORT_CODES) {
-    m.set(i18n.t(`bot.sport.${code}` as never, { lang }) as string, code);
+    m.set(i18n.t(`bot.sport.${code}` as never, { lang }), code);
   }
   return m;
 }
@@ -117,6 +117,6 @@ export function weekdayIsoLabels(
 ) {
   const lang = resolveUiLang(languageId);
   return [1, 2, 3, 4, 5, 6, 7].map((d) =>
-    i18n.t(`bot.weekdayIso.${String(d)}` as never, { lang }) as string,
+    i18n.t(`bot.weekdayIso.${String(d)}` as never, { lang }),
   );
 }

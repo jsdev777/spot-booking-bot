@@ -85,7 +85,7 @@ export function resolveCommunityRulesText(
   if (ua) {
     return ua.body;
   }
-  return nonempty[0]!.body;
+  return nonempty[0].body;
 }
 
 @Injectable()

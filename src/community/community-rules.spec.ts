@@ -15,12 +15,7 @@ describe('resolveCommunityRulesText', () => {
 
   it('falls back to Ukrainian when preferred is missing', () => {
     expect(
-      resolveCommunityRulesText(
-        [
-          { languageId: 'ua', text: 'UA only' },
-        ],
-        'en',
-      ),
+      resolveCommunityRulesText([{ languageId: 'ua', text: 'UA only' }], 'en'),
     ).toBe('UA only');
   });
 
@@ -38,12 +33,7 @@ describe('resolveCommunityRulesText', () => {
 
   it('uses first non-empty when Ukrainian is missing', () => {
     expect(
-      resolveCommunityRulesText(
-        [
-          { languageId: 'en', text: 'Only EN' },
-        ],
-        'de',
-      ),
+      resolveCommunityRulesText([{ languageId: 'en', text: 'Only EN' }], 'de'),
     ).toBe('Only EN');
   });
 });

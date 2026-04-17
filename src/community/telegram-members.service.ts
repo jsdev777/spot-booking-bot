@@ -389,9 +389,7 @@ export class TelegramMembersService {
       where: { telegramChatId: params.telegramChatId },
       include: { rules: true },
     });
-    const hasRules = (comm?.rules ?? []).some(
-      (r) => r.text.trim().length > 0,
-    );
+    const hasRules = (comm?.rules ?? []).some((r) => r.text.trim().length > 0);
 
     await this.prisma.$transaction(async (tx) => {
       const user = await tx.telegramUser.upsert({

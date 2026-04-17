@@ -140,11 +140,7 @@ export class ReminderService {
         groupChatId,
         organizerId,
       );
-      const organizerText = this.reminderText(
-        organizerLang,
-        place,
-        localTime,
-      );
+      const organizerText = this.reminderText(organizerLang, place, localTime);
 
       const participantTargets = b.lookingParticipants
         .filter((p) => !p.reminderSent)
@@ -155,8 +151,14 @@ export class ReminderService {
       const batches: Array<
         Array<{ participantId: string; telegramUserId: number }>
       > = [];
-      for (let i = 0; i < participantTargets.length; i += REMINDER_SEND_CONCURRENCY) {
-        batches.push(participantTargets.slice(i, i + REMINDER_SEND_CONCURRENCY));
+      for (
+        let i = 0;
+        i < participantTargets.length;
+        i += REMINDER_SEND_CONCURRENCY
+      ) {
+        batches.push(
+          participantTargets.slice(i, i + REMINDER_SEND_CONCURRENCY),
+        );
       }
 
       if (!b.reminderSent) {

@@ -103,7 +103,14 @@ describe('TelegramMembersService setUserDefaultLanguage', () => {
   });
 
   it('upserts telegram user with default language', async () => {
-    const upsert = jest.fn().mockResolvedValue({});
+    type TelegramUserUpsertArg = {
+      where: { telegramUserId: bigint };
+      create: { defaultLanguageId: string; telegramUserId: bigint };
+      update: { defaultLanguageId: string };
+    };
+    const upsert = jest
+      .fn<Promise<object>, [TelegramUserUpsertArg]>()
+      .mockResolvedValue({});
     const prisma = {
       language: {
         findUnique: jest.fn().mockResolvedValue({ id: 'uk' }),
@@ -117,16 +124,12 @@ describe('TelegramMembersService setUserDefaultLanguage', () => {
       username: 'u',
     });
     expect(r).toEqual({ ok: true });
-    expect(upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { telegramUserId: 555n },
-        create: expect.objectContaining({
-          defaultLanguageId: 'uk',
-          telegramUserId: 555n,
-        }),
-        update: expect.objectContaining({ defaultLanguageId: 'uk' }),
-      }),
-    );
+    expect(upsert).toHaveBeenCalledTimes(1);
+    const [arg] = upsert.mock.calls[0];
+    expect(arg.where.telegramUserId).toBe(555n);
+    expect(arg.create.defaultLanguageId).toBe('uk');
+    expect(arg.create.telegramUserId).toBe(555n);
+    expect(arg.update.defaultLanguageId).toBe('uk');
   });
 });
 

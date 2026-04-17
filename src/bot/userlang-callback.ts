@@ -13,5 +13,5 @@ export function parseUserlangCallback(
   if (!m) {
     return null;
   }
-  return { telegramUserId: Number(m[1]), languageId: m[2]! };
+  return { telegramUserId: Number(m[1]), languageId: m[2] };
 }

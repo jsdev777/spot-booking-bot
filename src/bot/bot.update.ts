@@ -460,7 +460,9 @@ export class BotUpdate {
       return this.groupEntryReplyMarkupForChatUser();
     }
     const lbl = this.L(await this.langForCtx(ctx));
-    return Markup.keyboard([[lbl.menuChatBot]]).resize().persistent(true);
+    return Markup.keyboard([[lbl.menuChatBot]])
+      .resize()
+      .persistent(true);
   }
 
   private async listAvailableGroupsForUser(
@@ -928,12 +930,14 @@ export class BotUpdate {
     return label;
   }
 
-  private listBookingsReplyMarkup(items: {
-    startTime: Date;
-    endTime: Date;
-    timeZone: string;
-    resourceName: string;
-  }[]) {
+  private listBookingsReplyMarkup(
+    items: {
+      startTime: Date;
+      endTime: Date;
+      timeZone: string;
+      resourceName: string;
+    }[],
+  ) {
     const lbl = this.kb();
     const labels = items.map((it) => this.buildListBookingButtonLabel(it));
     const rows = kbRowsPaired(labels);
@@ -1766,10 +1770,7 @@ export class BotUpdate {
     } catch (e) {
       const lang = this.kb().lang;
       if (e instanceof SlotTakenError) {
-        await this.replyWithMainMenu(
-          ctx,
-          this.botT(lang, 'book.slotTaken'),
-        );
+        await this.replyWithMainMenu(ctx, this.botT(lang, 'book.slotTaken'));
         return;
       }
       if (e instanceof SlotInPastError) {
@@ -2258,9 +2259,7 @@ export class BotUpdate {
         );
         return;
       }
-      await ctx.reply(
-        this.botT(this.kb().lang, 'whDm.skipOrPerDayFirst'),
-      );
+      await ctx.reply(this.botT(this.kb().lang, 'whDm.skipOrPerDayFirst'));
       return;
     }
 
@@ -2302,9 +2301,7 @@ export class BotUpdate {
         await ctx.reply(body, this.whDayActionsReplyMarkup());
         return;
       }
-      await ctx.reply(
-        this.botT(this.kb().lang, 'whDm.pickDayOrDone'),
-      );
+      await ctx.reply(this.botT(this.kb().lang, 'whDm.pickDayOrDone'));
       return;
     }
 
@@ -2420,9 +2417,7 @@ export class BotUpdate {
     if (draft.phase === 'start') {
       const hm = text.match(/^(\d{1,2}):00$/);
       if (!hm) {
-        await ctx.reply(
-          this.botT(this.kb().lang, 'whDm.pickOpeningByButtons'),
-        );
+        await ctx.reply(this.botT(this.kb().lang, 'whDm.pickOpeningByButtons'));
         return;
       }
       const hour = Number(hm[1]);
@@ -2446,9 +2441,7 @@ export class BotUpdate {
     }
     const hm = text.match(/^(\d{1,2}):00$/);
     if (!hm) {
-      await ctx.reply(
-        this.botT(this.kb().lang, 'whDm.pickEndByButtons'),
-      );
+      await ctx.reply(this.botT(this.kb().lang, 'whDm.pickEndByButtons'));
       return;
     }
     const closeHour = Number(hm[1]);
@@ -2462,9 +2455,7 @@ export class BotUpdate {
       return;
     }
     if (closeHour <= start) {
-      await ctx.reply(
-        this.botT(this.kb().lang, 'whDm.endAfterStart'),
-      );
+      await ctx.reply(this.botT(this.kb().lang, 'whDm.endAfterStart'));
       return;
     }
     const slotEnd = closeHour - 1;
@@ -2479,9 +2470,7 @@ export class BotUpdate {
       });
     } catch (e) {
       this.logger.error(e instanceof Error ? e.message : e);
-      await ctx.reply(
-        this.botT(this.kb().lang, 'whDm.genericSaveFailedRetry'),
-      );
+      await ctx.reply(this.botT(this.kb().lang, 'whDm.genericSaveFailedRetry'));
       return;
     }
     this.whPerDayEditByUser.delete(uid);
@@ -2519,7 +2508,7 @@ export class BotUpdate {
       return next();
     }
     const textRaw = ctx.message.text.trim();
-    const from = ctx.from!;
+    const from = ctx.from;
     const lang = await this.langForCtx(ctx);
     const lbl = this.L(lang);
     if (textRaw !== lbl.menuSetup) {
@@ -2582,9 +2571,7 @@ export class BotUpdate {
         this.logger.warn(
           e instanceof Error ? e.message : 'openSetup from DM failed',
         );
-        await ctx.reply(
-          this.botT(lbl.lang, 'setup.openSetupFailedFromGroup'),
-        );
+        await ctx.reply(this.botT(lbl.lang, 'setup.openSetupFailedFromGroup'));
       }
     });
   }
@@ -2703,74 +2690,123 @@ export class BotUpdate {
     }
     const text = textRaw;
 
-    const from = ctx.from!;
+    const from = ctx.from;
     return this.withUserLabels(ctx, async () => {
-    if (isGroupChat(ctx) && text === this.kb().menuSetup) {
-      await this.runGroupSetup(ctx);
-      return;
-    }
+      if (isGroupChat(ctx) && text === this.kb().menuSetup) {
+        await this.runGroupSetup(ctx);
+        return;
+      }
 
-    if (isGroupChat(ctx) && text === this.kb().menuChatBot) {
-      await this.openDmMenuForGroupFromGroupContext(ctx);
-      await this.tryDeleteTriggerTextMessage(ctx);
-      return;
-    }
+      if (isGroupChat(ctx) && text === this.kb().menuChatBot) {
+        await this.openDmMenuForGroupFromGroupContext(ctx);
+        await this.tryDeleteTriggerTextMessage(ctx);
+        return;
+      }
 
-    if (isGroupChat(ctx) && text === this.kb().menuFreeSlots) {
-      await this.openDmFreeSlotsForGroupFromGroupContext(ctx);
-      await this.tryDeleteTriggerTextMessage(ctx);
-      return;
-    }
+      if (isGroupChat(ctx) && text === this.kb().menuFreeSlots) {
+        await this.openDmFreeSlotsForGroupFromGroupContext(ctx);
+        await this.tryDeleteTriggerTextMessage(ctx);
+        return;
+      }
 
-    if (!isGroupChat(ctx)) {
-      const picked = this.groupPickerLabelsByUser.get(from.id)?.get(text);
-      if (picked != null) {
-        this.activeGroupByUser.set(from.id, picked);
-        this.groupPickerLabelsByUser.delete(from.id);
-        const pendingPickerAction = this.pendingDmPickerActionByUser.get(
-          from.id,
-        );
-        if (pendingPickerAction === 'setup') {
-          this.pendingDmPickerActionByUser.delete(from.id);
-          if (
-            !(await isUserAdminOfGroupChat(ctx.telegram, picked, from.id))
-          ) {
+      if (!isGroupChat(ctx)) {
+        const picked = this.groupPickerLabelsByUser.get(from.id)?.get(text);
+        if (picked != null) {
+          this.activeGroupByUser.set(from.id, picked);
+          this.groupPickerLabelsByUser.delete(from.id);
+          const pendingPickerAction = this.pendingDmPickerActionByUser.get(
+            from.id,
+          );
+          if (pendingPickerAction === 'setup') {
+            this.pendingDmPickerActionByUser.delete(from.id);
+            if (
+              !(await isUserAdminOfGroupChat(ctx.telegram, picked, from.id))
+            ) {
+              await ctx.reply(this.botT(this.kb().lang, 'setup.adminOnly'));
+              return;
+            }
+            let chatTitle = this.botT(
+              this.kb().lang,
+              'setup.chatTitleFallback',
+            );
+            try {
+              const chat = await ctx.telegram.getChat(picked.toString());
+              if (chat && 'title' in chat && chat.title) {
+                chatTitle = chat.title;
+              }
+            } catch {
+              /* title unavailable */
+            }
+            try {
+              await this.openSetupDmSession({
+                telegram: ctx.telegram,
+                from,
+                groupChatId: picked,
+                chatTitle,
+              });
+            } catch (e) {
+              this.logger.warn(
+                e instanceof Error
+                  ? e.message
+                  : 'openSetup after group pick failed',
+              );
+              await ctx.reply(
+                this.botT(this.kb().lang, 'setup.openSetupFailedRetry'),
+              );
+            }
+            return;
+          }
+          this.resetMenuState(ctx);
+          await ctx.reply(
+            this.botT(this.kb().lang, 'menu.title'),
+            await this.mainMenuReplyMarkup(ctx),
+          );
+          return;
+        }
+        if (text === this.kb().menuSwitchGroup) {
+          await this.promptGroupPickerInDm(ctx, { force: true });
+          return;
+        }
+        if (text === this.kb().menuChangeLanguage) {
+          const gid = this.activeGroupByUser.get(from.id);
+          if (gid == null) {
             await ctx.reply(
-              this.botT(this.kb().lang, 'setup.adminOnly'),
+              this.botT(this.kb().lang, 'menu.changeLanguagePickGroup'),
             );
             return;
           }
-          let chatTitle = this.botT(
-            this.kb().lang,
-            'setup.chatTitleFallback',
-          );
           try {
-            const chat = await ctx.telegram.getChat(picked.toString());
-            if (chat && 'title' in chat && chat.title) {
-              chatTitle = chat.title;
-            }
-          } catch {
-            /* title unavailable */
-          }
-          try {
-            await this.openSetupDmSession({
-              telegram: ctx.telegram,
-              from,
-              groupChatId: picked,
-              chatTitle,
+            await this.sendLanguagePickerMessages(ctx.telegram, gid, from.id, {
+              allowGroupFallback: true,
             });
           } catch (e) {
             this.logger.warn(
-              e instanceof Error
-                ? e.message
-                : 'openSetup after group pick failed',
+              `DM change language picker: ${e instanceof Error ? e.message : String(e)}`,
             );
             await ctx.reply(
-              this.botT(this.kb().lang, 'setup.openSetupFailedRetry'),
+              this.botT(this.kb().lang, 'menu.changeLanguageFailed'),
             );
           }
           return;
         }
+        if (text === this.kb().menuChatBot) {
+          const gid = await this.promptGroupPickerInDm(ctx, { force: true });
+          if (gid != null) {
+            this.resetMenuState(ctx);
+            await ctx.reply(
+              this.botT(this.kb().lang, 'menu.title'),
+              await this.mainMenuReplyMarkup(ctx),
+            );
+          }
+          return;
+        }
+      }
+
+      if (text === this.kb().menuMain) {
+        if (isGroupChat(ctx)) {
+          this.clearSetupBridgeForGroup(from.id, String(ctx.chat!.id));
+        }
+        this.setupDrafts.delete(this.setupSk(ctx.chat!.id, from.id));
         this.resetMenuState(ctx);
         await ctx.reply(
           this.botT(this.kb().lang, 'menu.title'),
@@ -2778,200 +2814,147 @@ export class BotUpdate {
         );
         return;
       }
-      if (text === this.kb().menuSwitchGroup) {
-        await this.promptGroupPickerInDm(ctx, { force: true });
-        return;
-      }
-      if (text === this.kb().menuChangeLanguage) {
-        const gid = this.activeGroupByUser.get(from.id);
-        if (gid == null) {
-          await ctx.reply(
-            this.botT(this.kb().lang, 'menu.changeLanguagePickGroup'),
-          );
+
+      const setupDraft = this.setupDrafts.get(this.sk(ctx));
+      if (setupDraft != null) {
+        if (
+          isGroupChat(ctx) &&
+          this.setupBridgeGroupByUser.get(from.id) === String(ctx.chat!.id)
+        ) {
+          await ctx.reply(this.botT(this.kb().lang, 'setup.continueInDmOnly'));
           return;
         }
-        try {
-          await this.sendLanguagePickerMessages(ctx.telegram, gid, from.id, {
-            allowGroupFallback: true,
-          });
-        } catch (e) {
-          this.logger.warn(
-            `DM change language picker: ${e instanceof Error ? e.message : String(e)}`,
-          );
-          await ctx.reply(
-            this.botT(this.kb().lang, 'menu.changeLanguageFailed'),
-          );
-        }
+        this.setupDrafts.delete(this.sk(ctx));
+      }
+
+      if (text === this.kb().menuBack) {
+        await this.handleMenuBack(ctx);
         return;
       }
-      if (text === this.kb().menuChatBot) {
-        const gid = await this.promptGroupPickerInDm(ctx, { force: true });
-        if (gid != null) {
+
+      const state = this.getMenuState(ctx);
+
+      if (state.t === 'list') {
+        if (state.rowLabels.includes(text)) {
+          await this.handleListCancel(ctx, text, state);
+        } else if (
+          text === this.kb().menuBook ||
+          text === this.kb().menuList ||
+          text === this.kb().menuGrid ||
+          text === this.kb().menuFreeSlots ||
+          text === this.kb().menuSwitchGroup
+        ) {
           this.resetMenuState(ctx);
-          await ctx.reply(
-            this.botT(this.kb().lang, 'menu.title'),
-            await this.mainMenuReplyMarkup(ctx),
-          );
+          if (text === this.kb().menuSwitchGroup) {
+            await this.promptGroupPickerInDm(ctx, { force: true });
+          } else {
+            await this.handleMainMenuButtons(ctx, text);
+          }
         }
         return;
       }
-    }
-
-    if (text === this.kb().menuMain) {
-      if (isGroupChat(ctx)) {
-        this.clearSetupBridgeForGroup(from.id, String(ctx.chat!.id));
-      }
-      this.setupDrafts.delete(this.setupSk(ctx.chat!.id, from.id));
-      this.resetMenuState(ctx);
-      await ctx.reply(
-        this.botT(this.kb().lang, 'menu.title'),
-        await this.mainMenuReplyMarkup(ctx),
-      );
-      return;
-    }
-
-    const setupDraft = this.setupDrafts.get(this.sk(ctx));
-    if (setupDraft != null) {
-      if (
-        isGroupChat(ctx) &&
-        this.setupBridgeGroupByUser.get(from.id) === String(ctx.chat!.id)
-      ) {
-        await ctx.reply(
-          this.botT(this.kb().lang, 'setup.continueInDmOnly'),
-        );
-        return;
-      }
-      this.setupDrafts.delete(this.sk(ctx));
-    }
-
-    if (text === this.kb().menuBack) {
-      await this.handleMenuBack(ctx);
-      return;
-    }
-
-    const state = this.getMenuState(ctx);
-
-    if (state.t === 'list') {
-      if (state.rowLabels.includes(text)) {
-        await this.handleListCancel(ctx, text, state);
-      } else if (
-        text === this.kb().menuBook ||
-        text === this.kb().menuList ||
-        text === this.kb().menuGrid ||
-        text === this.kb().menuFreeSlots ||
-        text === this.kb().menuSwitchGroup
-      ) {
-        this.resetMenuState(ctx);
-        if (text === this.kb().menuSwitchGroup) {
-          await this.promptGroupPickerInDm(ctx, { force: true });
-        } else {
-          await this.handleMainMenuButtons(ctx, text);
-        }
-      }
-      return;
-    }
-    if (state.t === 'free_slots') {
-      if (state.rowLabels.includes(text)) {
-        await this.handleFreeSlotJoin(ctx, text, state);
-      } else if (
-        text === this.kb().menuBook ||
-        text === this.kb().menuList ||
-        text === this.kb().menuGrid ||
-        text === this.kb().menuFreeSlots ||
-        text === this.kb().menuSwitchGroup
-      ) {
-        this.resetMenuState(ctx);
-        if (text === this.kb().menuSwitchGroup) {
-          await this.promptGroupPickerInDm(ctx, { force: true });
-        } else {
-          await this.handleMainMenuButtons(ctx, text);
-        }
-      }
-      return;
-    }
-    if (state.t === 'book_sport') {
-      if (
-        text === this.kb().menuBook ||
-        text === this.kb().menuList ||
-        text === this.kb().menuGrid ||
-        text === this.kb().menuFreeSlots ||
-        text === this.kb().menuSwitchGroup
-      ) {
-        this.resetMenuState(ctx);
-        if (text === this.kb().menuSwitchGroup) {
-          await this.promptGroupPickerInDm(ctx, { force: true });
-        } else {
-          await this.handleMainMenuButtons(ctx, text);
+      if (state.t === 'free_slots') {
+        if (state.rowLabels.includes(text)) {
+          await this.handleFreeSlotJoin(ctx, text, state);
+        } else if (
+          text === this.kb().menuBook ||
+          text === this.kb().menuList ||
+          text === this.kb().menuGrid ||
+          text === this.kb().menuFreeSlots ||
+          text === this.kb().menuSwitchGroup
+        ) {
+          this.resetMenuState(ctx);
+          if (text === this.kb().menuSwitchGroup) {
+            await this.promptGroupPickerInDm(ctx, { force: true });
+          } else {
+            await this.handleMainMenuButtons(ctx, text);
+          }
         }
         return;
       }
-      await this.handleBookSportPick(ctx, text);
-      return;
-    }
-    if (state.t === 'book_res') {
-      await this.handleBookResourcePick(ctx, text);
-      return;
-    }
-    if (state.t === 'book_day') {
-      await this.handleBookDayPick(ctx, text, state);
-      return;
-    }
-    if (state.t === 'book_hour') {
-      await this.handleBookHourPick(ctx, text, state);
-      return;
-    }
-    if (state.t === 'book_looking') {
-      if (
-        text === this.kb().menuBook ||
-        text === this.kb().menuList ||
-        text === this.kb().menuGrid ||
-        text === this.kb().menuFreeSlots ||
-        text === this.kb().menuSwitchGroup
-      ) {
-        this.resetMenuState(ctx);
-        if (text === this.kb().menuSwitchGroup) {
-          await this.promptGroupPickerInDm(ctx, { force: true });
-        } else {
-          await this.handleMainMenuButtons(ctx, text);
+      if (state.t === 'book_sport') {
+        if (
+          text === this.kb().menuBook ||
+          text === this.kb().menuList ||
+          text === this.kb().menuGrid ||
+          text === this.kb().menuFreeSlots ||
+          text === this.kb().menuSwitchGroup
+        ) {
+          this.resetMenuState(ctx);
+          if (text === this.kb().menuSwitchGroup) {
+            await this.promptGroupPickerInDm(ctx, { force: true });
+          } else {
+            await this.handleMainMenuButtons(ctx, text);
+          }
+          return;
         }
+        await this.handleBookSportPick(ctx, text);
         return;
       }
-      await this.handleBookLookingPick(ctx, text, state);
-      return;
-    }
-    if (state.t === 'book_players') {
-      if (
-        text === this.kb().menuBook ||
-        text === this.kb().menuList ||
-        text === this.kb().menuGrid ||
-        text === this.kb().menuFreeSlots ||
-        text === this.kb().menuSwitchGroup
-      ) {
-        this.resetMenuState(ctx);
-        if (text === this.kb().menuSwitchGroup) {
-          await this.promptGroupPickerInDm(ctx, { force: true });
-        } else {
-          await this.handleMainMenuButtons(ctx, text);
-        }
+      if (state.t === 'book_res') {
+        await this.handleBookResourcePick(ctx, text);
         return;
       }
-      await this.handleBookPlayersPick(ctx, text, state);
-      return;
-    }
-    if (state.t === 'book_dur') {
-      await this.handleBookDurPick(ctx, text, state);
-      return;
-    }
-    if (state.t === 'grid_res') {
-      await this.handleGridResourcePick(ctx, text);
-      return;
-    }
-    if (state.t === 'grid_day') {
-      await this.handleGridDayPick(ctx, text, state);
-      return;
-    }
+      if (state.t === 'book_day') {
+        await this.handleBookDayPick(ctx, text, state);
+        return;
+      }
+      if (state.t === 'book_hour') {
+        await this.handleBookHourPick(ctx, text, state);
+        return;
+      }
+      if (state.t === 'book_looking') {
+        if (
+          text === this.kb().menuBook ||
+          text === this.kb().menuList ||
+          text === this.kb().menuGrid ||
+          text === this.kb().menuFreeSlots ||
+          text === this.kb().menuSwitchGroup
+        ) {
+          this.resetMenuState(ctx);
+          if (text === this.kb().menuSwitchGroup) {
+            await this.promptGroupPickerInDm(ctx, { force: true });
+          } else {
+            await this.handleMainMenuButtons(ctx, text);
+          }
+          return;
+        }
+        await this.handleBookLookingPick(ctx, text, state);
+        return;
+      }
+      if (state.t === 'book_players') {
+        if (
+          text === this.kb().menuBook ||
+          text === this.kb().menuList ||
+          text === this.kb().menuGrid ||
+          text === this.kb().menuFreeSlots ||
+          text === this.kb().menuSwitchGroup
+        ) {
+          this.resetMenuState(ctx);
+          if (text === this.kb().menuSwitchGroup) {
+            await this.promptGroupPickerInDm(ctx, { force: true });
+          } else {
+            await this.handleMainMenuButtons(ctx, text);
+          }
+          return;
+        }
+        await this.handleBookPlayersPick(ctx, text, state);
+        return;
+      }
+      if (state.t === 'book_dur') {
+        await this.handleBookDurPick(ctx, text, state);
+        return;
+      }
+      if (state.t === 'grid_res') {
+        await this.handleGridResourcePick(ctx, text);
+        return;
+      }
+      if (state.t === 'grid_day') {
+        await this.handleGridDayPick(ctx, text, state);
+        return;
+      }
 
-    await this.handleMainMenuButtons(ctx, text);
+      await this.handleMainMenuButtons(ctx, text);
     });
   }
 
@@ -3035,8 +3018,8 @@ export class BotUpdate {
   private setupRulesLanguageReplyMarkup(
     langs: { id: string; nameNative: string }[],
   ) {
-    const labels = langs.map(
-      (l, i) => `${i + 1}. ${l.nameNative} (${l.id})`.slice(0, 64),
+    const labels = langs.map((l, i) =>
+      `${i + 1}. ${l.nameNative} (${l.id})`.slice(0, 64),
     );
     const rows = kbRowsPaired(labels);
     rows.push([this.kb().menuBack, this.kb().menuMain]);
@@ -3919,7 +3902,10 @@ export class BotUpdate {
             currentRules
               ? `Мова правил: ${lang.nameNative} (${lang.id}).\n\nПоточні правила:\n\n${currentRules}\n\nНадішліть новий текст одним повідомленням, щоб замінити правила.`
               : `Мова правил: ${lang.nameNative} (${lang.id}).\n\nПравила для цієї мови ще не задані.\n\nНадішліть текст правил одним повідомленням, щоб створити їх.`,
-            Markup.keyboard([[this.kb().menuBack, this.kb().menuMain], [this.kb().setupCancel]])
+            Markup.keyboard([
+              [this.kb().menuBack, this.kb().menuMain],
+              [this.kb().setupCancel],
+            ])
               .resize()
               .persistent(true),
           );
@@ -5033,9 +5019,7 @@ export class BotUpdate {
     const rulesAcceptLabel = this.botT(rulesLang, 'rules.accept');
     const lastExtra = {
       reply_markup: {
-        inline_keyboard: [
-          [{ text: rulesAcceptLabel, callback_data: cbData }],
-        ],
+        inline_keyboard: [[{ text: rulesAcceptLabel, callback_data: cbData }]],
       },
     };
 
@@ -5167,9 +5151,7 @@ export class BotUpdate {
     if (!ctx.from) {
       return true;
     }
-    if (
-      await isUserAdminOfGroupChat(ctx.telegram, groupChatId, ctx.from.id)
-    ) {
+    if (await isUserAdminOfGroupChat(ctx.telegram, groupChatId, ctx.from.id)) {
       return true;
     }
     const joinResult = await this.telegramMembers.recordJoin({
@@ -5480,12 +5462,13 @@ export class BotUpdate {
           return;
         }
       }
-      const { defaultLanguageId } = await this.telegramMembers.upsertTelegramUser({
-        telegramUserId: ctx.from.id,
-        username: ctx.from.username,
-        firstName: ctx.from.first_name,
-        lastName: ctx.from.last_name,
-      });
+      const { defaultLanguageId } =
+        await this.telegramMembers.upsertTelegramUser({
+          telegramUserId: ctx.from.id,
+          username: ctx.from.username,
+          firstName: ctx.from.first_name,
+          lastName: ctx.from.last_name,
+        });
       if (defaultLanguageId == null) {
         try {
           await this.sendUserDefaultLanguagePicker(ctx.telegram, ctx.from.id);
@@ -5730,7 +5713,7 @@ export class BotUpdate {
     }
     const expectedUserId = Number(mm[1]);
     const groupChatId = BigInt(mm[2]);
-    const languageId = mm[3]!;
+    const languageId = mm[3];
     if (ctx.from.id !== expectedUserId) {
       await ctx.answerCbQuery('Ця кнопка призначена не для вас.', {
         show_alert: true,
@@ -5843,7 +5826,7 @@ export class BotUpdate {
       languageId !== previousLang &&
       !joinResult.pendingGroupRules
     ) {
-      const from = ctx.from!;
+      const from = ctx.from;
       const ui = resolveUiLang(languageId);
       this.activeGroupByUser.set(from.id, groupChatId);
       try {
