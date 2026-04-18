@@ -37,7 +37,11 @@ import {
   sportLabelToCodeMap,
   weekdayIsoLabels,
 } from './bot-i18n.labels';
-import { resolveUiLang, UI_FALLBACK_LANGUAGE } from '../i18n/resolve-ui-lang';
+import {
+  resolveUiLang,
+  UI_FALLBACK_LANGUAGE,
+  UI_LANGUAGE_PROMPT_NEUTRAL_LANG,
+} from '../i18n/resolve-ui-lang';
 import {
   parseUserlangCallback,
   USERLANG_CALLBACK_RE,
@@ -73,7 +77,7 @@ const START_RULES_PREFIX = 'rules_';
 const TELEGRAM_SEND_BATCH_SIZE = 6;
 const TELEGRAM_MAX_429_RETRIES = 2;
 
-/** Дві кнопки в ряд — з `resize` займають приблизно половину ширини екрана. */
+/** Two buttons per row — with `resize` they use roughly half the screen width. */
 function kbRowsPaired(buttons: string[]): string[][] {
   const rows: string[][] = [];
   for (let i = 0; i < buttons.length; i += 2) {
@@ -684,7 +688,7 @@ export class BotUpdate {
       endTime: r.endTime,
       timeZone: r.resource.timeZone,
       resourceName: r.resource.name,
-      sportNameUa: r.sportKind.nameUa,
+      sportKindCode: r.sportKindCode,
       playersNeeded: r.requiredPlayers,
     }));
     const rowLabels = listItems.map((item) =>
@@ -951,15 +955,17 @@ export class BotUpdate {
     endTime: Date;
     timeZone: string;
     resourceName: string;
-    sportNameUa: string;
+    sportKindCode: SportKindCode;
     playersNeeded: number;
   }): string {
     const lbl = this.kb();
     const day = formatInTimeZone(item.startTime, item.timeZone, 'dd.MM');
     const a = formatInTimeZone(item.startTime, item.timeZone, 'HH:mm');
     const z = formatInTimeZone(item.endTime, item.timeZone, 'HH:mm');
-    const sport = item.sportNameUa.trim() || '—';
-    const res = item.resourceName.trim() || '—';
+    const sport = this.botT(lbl.lang, `sport.${item.sportKindCode}`);
+    const res =
+      item.resourceName.trim() ||
+      this.botT(lbl.lang, 'common.emDash');
     const tail = this.botT(lbl.lang, 'freeSlot.morePlayers', {
       n: item.playersNeeded,
     });
@@ -991,7 +997,7 @@ export class BotUpdate {
       endTime: Date;
       timeZone: string;
       resourceName: string;
-      sportNameUa: string;
+      sportKindCode: SportKindCode;
       playersNeeded: number;
     }[],
   ) {
@@ -1514,7 +1520,7 @@ export class BotUpdate {
         endTime: r.endTime,
         timeZone: r.resource.timeZone,
         resourceName: r.resource.name,
-        sportNameUa: r.sportKind.nameUa,
+        sportKindCode: r.sportKindCode,
         playersNeeded: r.requiredPlayers,
       }));
       const rowLabels = listItems.map((item) =>
@@ -1816,6 +1822,7 @@ export class BotUpdate {
       return;
     }
     const admin = await this.isAdminInContextGroup(ctx, chatId);
+    const lbl = this.kb();
     try {
       const { resourceId, startTime, endTime, resourceName, timeZone } =
         await this.booking.createBooking({
@@ -1836,10 +1843,10 @@ export class BotUpdate {
           telegramGroupAdmin: admin,
           isLookingForPlayers: players.isLookingForPlayers,
           requiredPlayers: players.requiredPlayers,
+          displayLocale: lbl.lang,
         });
       const a = formatInTimeZone(startTime, timeZone, 'HH:mm');
       const z = formatInTimeZone(endTime, timeZone, 'HH:mm');
-      const lbl = this.kb();
       const looking =
         players.isLookingForPlayers && players.requiredPlayers > 0
           ? this.botT(lbl.lang, 'book.bookingAddedLooking', {
@@ -1849,17 +1856,25 @@ export class BotUpdate {
       const day = formatInTimeZone(startTime, timeZone, 'dd.MM.yyyy');
       const whoRaw = ctx.from?.username?.trim()
         ? ctx.from.username.trim()
-        : (ctx.from?.first_name?.trim() ?? 'Гравець');
+        : (ctx.from?.first_name?.trim() ??
+            this.botT(lbl.lang, 'setup.adminPlayerFallback'));
       const sportLabel = this.bookingSportLabel(flow.sportKindCode);
-      const groupBroadcast =
-        `Нове бронювання\n\n` +
-        `Майданчик: «${resourceName}»\n` +
-        `Коли: ${day} ${a}–${z} (${timeZone})\n` +
-        `Хто: ${whoRaw}\n` +
-        `Спорт: ${sportLabel}` +
-        (players.isLookingForPlayers && players.requiredPlayers > 0
-          ? `\nПошук партнерів: потрібно ще ${players.requiredPlayers} чол.`
-          : '');
+      const lookingBroadcast =
+        players.isLookingForPlayers && players.requiredPlayers > 0
+          ? this.botT(lbl.lang, 'book.groupBroadcastLooking', {
+              n: String(players.requiredPlayers),
+            })
+          : '';
+      const groupBroadcast = this.botT(lbl.lang, 'book.groupBroadcastNew', {
+        resource: resourceName,
+        day,
+        timeFrom: a,
+        timeTo: z,
+        tz: timeZone,
+        who: whoRaw,
+        sport: sportLabel,
+        looking: lookingBroadcast,
+      });
       await this.broadcastToResourceGroups(ctx, resourceId, groupBroadcast);
       await this.replyWithMainMenu(
         ctx,
@@ -2123,6 +2138,7 @@ export class BotUpdate {
       telegramChatId: chatId,
       dayOffset,
       telegramGroupAdmin: admin,
+      displayLocale: this.kb().lang,
     });
     this.setMenuState(ctx, {
       t: 'grid_day',
@@ -2142,7 +2158,7 @@ export class BotUpdate {
       timeZone: string;
       startTime: Date;
       endTime: Date;
-      sportNameUa: string;
+      sportKindCode: SportKindCode;
     },
   ) {
     await this.sendMessageBatchBestEffort(
@@ -2163,16 +2179,22 @@ export class BotUpdate {
     );
     const cA = formatInTimeZone(notify.startTime, notify.timeZone, 'HH:mm');
     const cZ = formatInTimeZone(notify.endTime, notify.timeZone, 'HH:mm');
+    const lang = await this.langForCtx(ctx);
     const rawWho = ctx.from?.username?.trim()
       ? ctx.from.username.trim()
-      : (ctx.from?.first_name?.trim() ?? 'Гравець');
+      : (ctx.from?.first_name?.trim() ??
+          this.botT(lang, 'setup.adminPlayerFallback'));
     const cancelledBy = rawWho.replace(/^@+/, '');
-    const cancelBroadcast =
-      `Бронювання скасовано\n\n` +
-      `Майданчик: «${notify.resourceName}»\n` +
-      `Коли: ${cDay} ${cA}–${cZ} (${notify.timeZone})\n` +
-      `Спорт: ${notify.sportNameUa}\n` +
-      `Скасував: ${cancelledBy}`;
+    const sportLabel = this.botT(lang, `sport.${notify.sportKindCode}`);
+    const cancelBroadcast = this.botT(lang, 'book.groupBroadcastCancelled', {
+      resource: notify.resourceName,
+      day: cDay,
+      timeFrom: cA,
+      timeTo: cZ,
+      tz: notify.timeZone,
+      sport: sportLabel,
+      by: cancelledBy,
+    });
     await this.broadcastToResourceGroups(
       ctx,
       notify.resourceId,
@@ -2202,6 +2224,7 @@ export class BotUpdate {
         bookingId,
         telegramChatId: chatId,
         telegramUserId: ctx.from!.id,
+        noticeLocale: this.kb().lang,
       });
       await this.sendBookingCancellationAlerts(ctx, notify);
       await this.replyWithMainMenu(
@@ -2244,7 +2267,7 @@ export class BotUpdate {
     if (fn) {
       return fn;
     }
-    return this.botT(lang, 'book.adminPlayerFallback');
+    return this.botT(lang, 'setup.adminPlayerFallback');
   }
 
   private formatLookingSlotDmText(params: {
@@ -2254,7 +2277,7 @@ export class BotUpdate {
       timeZone: string;
       startTime: Date;
       endTime: Date;
-      sportNameUa: string;
+      sportKindCode: SportKindCode;
     };
     yourPeopleCount: number;
     organizer: {
@@ -2289,7 +2312,9 @@ export class BotUpdate {
       resource: this.escapeHtml(dm.resourceName),
       address: this.escapeHtml(addrRaw),
       when: this.escapeHtml(when),
-      sport: this.escapeHtml(dm.sportNameUa),
+      sport: this.escapeHtml(
+        this.botT(lang, `sport.${dm.sportKindCode}`),
+      ),
     });
   }
 
@@ -2308,7 +2333,7 @@ export class BotUpdate {
         timeZone: string;
         startTime: Date;
         endTime: Date;
-        sportNameUa: string;
+        sportKindCode: SportKindCode;
       };
       yourPeopleCount: number;
     },
@@ -2365,7 +2390,7 @@ export class BotUpdate {
         timeZone: string;
         startTime: Date;
         endTime: Date;
-        sportNameUa: string;
+        sportKindCode: SportKindCode;
       };
       yourPeopleCount: number;
     };
@@ -2406,7 +2431,9 @@ export class BotUpdate {
       resource: this.escapeHtml(dm.resourceName),
       address: this.escapeHtml(addrRaw),
       when: this.escapeHtml(when),
-      sport: this.escapeHtml(dm.sportNameUa),
+      sport: this.escapeHtml(
+        this.botT(lang, `sport.${dm.sportKindCode}`),
+      ),
     });
     try {
       await params.ctx.telegram.sendMessage(organizer.telegramUserId, text, {
@@ -2462,7 +2489,7 @@ export class BotUpdate {
           endTime: r.endTime,
           timeZone: r.resource.timeZone,
           resourceName: r.resource.name,
-          sportNameUa: r.sportKind.nameUa,
+          sportKindCode: r.sportKindCode,
           playersNeeded: r.requiredPlayers,
         }));
         const rowLabels = listItems.map((item) =>
@@ -2505,7 +2532,7 @@ export class BotUpdate {
       endTime: r.endTime,
       timeZone: r.resource.timeZone,
       resourceName: r.resource.name,
-      sportNameUa: r.sportKind.nameUa,
+      sportKindCode: r.sportKindCode,
       playersNeeded: r.requiredPlayers,
     }));
     const rowLabels = listItems.map((item) =>
@@ -3392,15 +3419,17 @@ export class BotUpdate {
     endTime: Date;
     timeZone: string;
     resourceName: string;
-    sportNameUa: string;
+    sportKindCode: SportKindCode;
     userName: string;
   }): string {
     const lbl = this.kb();
     const day = formatInTimeZone(item.startTime, item.timeZone, 'dd.MM');
     const a = formatInTimeZone(item.startTime, item.timeZone, 'HH:mm');
     const z = formatInTimeZone(item.endTime, item.timeZone, 'HH:mm');
-    const sport = item.sportNameUa.trim() || '—';
-    const res = item.resourceName.trim() || '—';
+    const sport = this.botT(lbl.lang, `sport.${item.sportKindCode}`);
+    const res =
+      item.resourceName.trim() ||
+      this.botT(lbl.lang, 'common.emDash');
     const who =
       item.userName.trim().replace(/^@+/, '') ||
       this.botT(lbl.lang, 'setup.adminPlayerFallback');
@@ -3581,7 +3610,7 @@ export class BotUpdate {
     if (text === this.kb().limitUnlimited) {
       maxMinutes = null;
     } else {
-      const m = text.match(/^(\d+) ч$/);
+      const m = text.match(/^(\d+)\s*(?:ч|h)$/i);
       if (!m) {
         await this.sendSetupDm(
           ctx,
@@ -3636,11 +3665,18 @@ export class BotUpdate {
     bookingWindowStartHour: number;
     bookingWindowEndHour: number;
   }): string {
+    const lang = this.kb().lang;
     const sh = c.bookingWindowStartHour;
     const eh = c.bookingWindowEndHour;
     const endLabel =
-      eh >= 24 ? '24:00 (північ)' : `${String(eh).padStart(2, '0')}:00`;
-    return `з ${String(sh).padStart(2, '0')}:00 до ${endLabel}, пояс ${c.bookingWindowTimeZone}`;
+      eh >= 24
+        ? this.botT(lang, 'bw.endClockMidnight')
+        : `${String(eh).padStart(2, '0')}:00`;
+    return this.botT(lang, 'bw.summaryLine', {
+      start: String(sh).padStart(2, '0'),
+      end: endLabel,
+      tz: c.bookingWindowTimeZone,
+    });
   }
 
   private setupBwStartHourReplyMarkup() {
@@ -3710,7 +3746,9 @@ export class BotUpdate {
       if (tzIdx < 0) {
         await this.sendSetupDm(
           ctx,
-          `Виберіть часовий пояс зі списку або натисніть кнопку «${this.kb().menuBack}».`,
+          this.botT(this.kb().lang, 'setup.bwPickTzOrBack', {
+            back: this.kb().menuBack,
+          }),
         );
         return true;
       }
@@ -3719,7 +3757,9 @@ export class BotUpdate {
       this.setupDrafts.set(sk, draft);
       await this.sendSetupDm(
         ctx,
-        `Крок 2/3: час початку вікна (включно), у часовому поясі «${draft.bwTzDraft}»:`,
+        this.botT(this.kb().lang, 'setup.bwStep2StartInTz', {
+          tz: draft.bwTzDraft ?? '',
+        }),
         this.setupBwStartHourReplyMarkup(),
       );
       return true;
@@ -3732,21 +3772,32 @@ export class BotUpdate {
         this.setupDrafts.set(sk, draft);
         const comm =
           await this.community.findByTelegramChatId(targetGroupChatId);
+        const current = comm
+          ? this.formatBookingWindowSummary(comm)
+          : this.botT(this.kb().lang, 'common.emDash');
         await this.sendSetupDm(
           ctx,
-          `Крок 1/3: часовий пояс у вікні бронювання.\n\nПоточні налаштування: ${comm ? this.formatBookingWindowSummary(comm) : '—'}.\n\nОберіть пояс:`,
+          this.botT(this.kb().lang, 'setup.bwStep1TzWithCurrent', {
+            current,
+          }),
           this.setupTzReplyMarkup(),
         );
         return true;
       }
       const hm = text.match(/^(\d{1,2}):00$/);
       if (!hm) {
-        await this.sendSetupDm(ctx, 'Виберіть час зі списку.');
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.bwPickHourFromList'),
+        );
         return true;
       }
       const hour = Number(hm[1]);
       if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
-        await this.sendSetupDm(ctx, 'Виберіть час від 00:00 до 23:00.');
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.bwPickHour00to23'),
+        );
         return true;
       }
       draft.bwStartHourDraft = hour;
@@ -3754,7 +3805,9 @@ export class BotUpdate {
       this.setupDrafts.set(sk, draft);
       await this.sendSetupDm(
         ctx,
-        `Крок 3/3: час закінчення періоду (кінець не вказується): після цього часу бронювання буде недоступним. Початок періоду: ${String(hour).padStart(2, '0')}:00.`,
+        this.botT(this.kb().lang, 'setup.bwStep3EndWithStart', {
+          hour: String(hour).padStart(2, '0'),
+        }),
         this.setupBwEndHourReplyMarkup(hour),
       );
       return true;
@@ -3766,7 +3819,9 @@ export class BotUpdate {
       this.setupDrafts.set(sk, draft);
       await this.sendSetupDm(
         ctx,
-        `Крок 2/3: час початку вікна (включно), у часовому поясі «${draft.bwTzDraft}»:`,
+        this.botT(this.kb().lang, 'setup.bwStep2StartInTz', {
+          tz: draft.bwTzDraft ?? '',
+        }),
         this.setupBwStartHourReplyMarkup(),
       );
       return true;
@@ -3785,25 +3840,36 @@ export class BotUpdate {
     } else {
       const hm = text.match(/^(\d{1,2}):00$/);
       if (!hm) {
-        await this.sendSetupDm(ctx, 'Виберіть час зі списку.');
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.bwPickHourFromList'),
+        );
         return true;
       }
       endHour = Number(hm[1]);
       if (!Number.isInteger(endHour) || endHour < 1 || endHour > 23) {
-        await this.sendSetupDm(ctx, 'Неправильний час.');
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.bwInvalidHour'),
+        );
         return true;
       }
       if (endHour <= start) {
         await this.sendSetupDm(
           ctx,
-          'Кінець періоду має бути пізніше за початок. Оберіть пізніший час або «24:00 — кінець дня».',
+          this.botT(this.kb().lang, 'setup.bwEndMustAfterStartWithMidnight', {
+            midnight: this.kb().bwEndMidnight,
+          }),
         );
         return true;
       }
     }
 
     if (endHour <= start) {
-      await this.sendSetupDm(ctx, 'Кінець вікна має бути пізніше за початок.');
+      await this.sendSetupDm(
+        ctx,
+        this.botT(this.kb().lang, 'setup.bwEndWindowAfterStart'),
+      );
       return true;
     }
 
@@ -3829,11 +3895,13 @@ export class BotUpdate {
     this.setupDrafts.set(sk, draft);
     await this.sendSetupDm(
       ctx,
-      `Готово: час бронювання в групі — ${this.formatBookingWindowSummary({
-        bookingWindowTimeZone: tz,
-        bookingWindowStartHour: start,
-        bookingWindowEndHour: endHour,
-      })}.`,
+      this.botT(this.kb().lang, 'bw.doneLine', {
+        summary: this.formatBookingWindowSummary({
+          bookingWindowTimeZone: tz,
+          bookingWindowStartHour: start,
+          bookingWindowEndHour: endHour,
+        }),
+      }),
       this.setupVenuesHubReplyMarkup(),
     );
     return true;
@@ -4063,7 +4131,7 @@ export class BotUpdate {
       await this.replyWithMainMenuInDmForGroup(
         ctx,
         targetGroupChatId,
-        'Сесія налаштування застаріла. Запустіть /setup у групі ще раз.',
+        this.botT(this.kb().lang, 'setup.sessionStale'),
       );
       return;
     }
@@ -4092,12 +4160,16 @@ export class BotUpdate {
       if (editingExisting) {
         tail =
           resourceVisibility === ResourceVisibility.INACTIVE
-            ? ' Неактивна — не відображається у списку бронювання для звичайних учасників.'
-            : ' Активна — доступна для бронювання всім.';
+            ? this.botT(this.kb().lang, 'setup.visibilityNoteInactive')
+            : this.botT(this.kb().lang, 'setup.visibilityNoteActive');
       }
       const baseDone = draft.creatingNewResource
-        ? `Готово: додано майданчик «${draft.name}» (активна). Можна бронювати в групі.`
-        : `Готово: майданчик «${draft.name}» збережений.${tail}`;
+        ? this.botT(this.kb().lang, 'setup.doneAddedVenueActive', {
+            name: draft.name ?? '',
+          })
+        : this.botT(this.kb().lang, 'setup.doneVenueSaved', {
+            name: draft.name ?? '',
+          }) + tail;
       const offered =
         ctx.from != null &&
         (await isUserAdminOfGroupChat(
@@ -4115,11 +4187,11 @@ export class BotUpdate {
         await this.replyWithMainMenuInDmForGroup(
           ctx,
           targetGroupChatId,
-          'Виберіть день тижня (Пн — понеділок). Зміни зберігаються одразу.',
+          this.botT(this.kb().lang, 'whDm.pickWeekdayPreamble'),
         );
         await this.sendSetupDm(
           ctx,
-          'Виберіть день тижня:',
+          this.botT(this.kb().lang, 'whDm.pickWeekday'),
           this.whPickDayReplyMarkup(),
         );
         return;
@@ -4135,7 +4207,11 @@ export class BotUpdate {
         ctx,
         targetGroupChatId,
         offered
-          ? `${baseDone}\n\nУ нижній частині клавіатури — «Налаштувати годинник за днями» або «Пропустити» (однаковий час для всіх днів).`
+          ? this.botT(this.kb().lang, 'setup.perDayKeyboardHint', {
+              base: baseDone,
+              whPerDay: this.kb().menuWhPerDay,
+              whSkip: this.kb().menuWhSkip,
+            })
           : baseDone,
         { perDayOffer: offered },
       );
@@ -4172,7 +4248,7 @@ export class BotUpdate {
       await this.replyWithMainMenuInDmForGroup(
         ctx,
         targetGroupChatId,
-        'Налаштування скасовано. Головне меню:',
+        this.botT(this.kb().lang, 'setup.settingsCancelledMain'),
       );
     };
 
@@ -4181,7 +4257,9 @@ export class BotUpdate {
       return;
     }
 
-    const chatTitle = draft.groupChatTitleForPrompt ?? 'Чат';
+    const chatTitle =
+      draft.groupChatTitleForPrompt ??
+      this.botT(this.kb().lang, 'setup.chatTitleFallback');
 
     if (draft.venuesSubstep === 'sport_kinds_pick') {
       const doneLabel = this.botT(this.kb().lang, 'setup.sportKindsDone');
@@ -4213,7 +4291,9 @@ export class BotUpdate {
         this.setupDrafts.set(sk, draft);
         await this.sendSetupDm(
           ctx,
-          `${this.setupStepLine(3, draft)}: часовий пояс (слоти будуть у цьому поясі)`,
+          this.botT(this.kb().lang, 'setup.step3TzCaption', {
+            stepLine: this.setupStepLine(3, draft),
+          }),
           this.setupTzReplyMarkup(),
         );
         return;
@@ -4272,34 +4352,45 @@ export class BotUpdate {
           if (!m) {
             await this.sendSetupDm(
               ctx,
-              `Оберіть номер мови зі списку або натисніть «${this.kb().menuBack}».`,
+              this.botT(this.kb().lang, 'setup.rulesPickNumberOrBack', {
+                back: this.kb().menuBack,
+              }),
               this.setupRulesLanguageReplyMarkup(langs),
             );
             return;
           }
           const idx = Number(m[1]) - 1;
-          const lang = langs[idx];
-          if (!lang) {
+          const rulesLangRow = langs[idx];
+          if (!rulesLangRow) {
             await this.sendSetupDm(
               ctx,
-              `Оберіть номер мови зі списку або натисніть «${this.kb().menuBack}».`,
+              this.botT(this.kb().lang, 'setup.rulesPickNumberOrBack', {
+                back: this.kb().menuBack,
+              }),
               this.setupRulesLanguageReplyMarkup(langs),
             );
             return;
           }
           const currentRules = await this.community.getCommunityRulesForChat(
             targetGroupChatId,
-            lang.id,
+            rulesLangRow.id,
           );
           draft.venuesSubstep = 'rules_edit';
-          draft.rulesLanguageIdDraft = lang.id;
-          draft.rulesLanguageNameDraft = lang.nameNative;
+          draft.rulesLanguageIdDraft = rulesLangRow.id;
+          draft.rulesLanguageNameDraft = rulesLangRow.nameNative;
           this.setupDrafts.set(sk, draft);
           await this.sendSetupDm(
             ctx,
             currentRules
-              ? `Мова правил: ${lang.nameNative} (${lang.id}).\n\nПоточні правила:\n\n${currentRules}\n\nНадішліть новий текст одним повідомленням, щоб замінити правила.`
-              : `Мова правил: ${lang.nameNative} (${lang.id}).\n\nПравила для цієї мови ще не задані.\n\nНадішліть текст правил одним повідомленням, щоб створити їх.`,
+              ? this.botT(this.kb().lang, 'setup.rulesEditReplace', {
+                  native: rulesLangRow.nameNative,
+                  id: rulesLangRow.id,
+                  rules: currentRules,
+                })
+              : this.botT(this.kb().lang, 'setup.rulesEditCreate', {
+                  native: rulesLangRow.nameNative,
+                  id: rulesLangRow.id,
+                }),
             Markup.keyboard([
               [this.kb().menuBack, this.kb().menuMain],
               [this.kb().setupCancel],
@@ -4329,7 +4420,7 @@ export class BotUpdate {
             const langs = await this.telegramMembers.listLanguagesForPicker();
             await this.sendSetupDm(
               ctx,
-              'Оберіть мову, для якої редагувати правила:',
+              this.botT(this.kb().lang, 'setup.rulesPickEditLanguage'),
               this.setupRulesLanguageReplyMarkup(langs),
             );
             return;
@@ -4338,14 +4429,16 @@ export class BotUpdate {
           if (!rulesText) {
             await this.sendSetupDm(
               ctx,
-              'Текст правил не може бути порожнім. Надішліть текст одним повідомленням або натисніть «Назад».',
+              this.botT(this.kb().lang, 'setup.rulesEmptyBody', {
+                back: this.kb().menuBack,
+              }),
             );
             return;
           }
           if (rulesText.length > 12000) {
             await this.sendSetupDm(
               ctx,
-              'Текст правил занадто довгий (максимум 12000 символів).',
+              this.botT(this.kb().lang, 'setup.rulesTooLong'),
             );
             return;
           }
@@ -4359,7 +4452,7 @@ export class BotUpdate {
             this.logger.error(e instanceof Error ? e.message : e);
             await this.sendSetupDm(
               ctx,
-              'Не вдалося зберегти правила. Спробуйте ще раз.',
+              this.botT(this.kb().lang, 'setup.rulesSaveFailed'),
             );
             return;
           }
@@ -4367,7 +4460,12 @@ export class BotUpdate {
           this.setupDrafts.set(sk, draft);
           await this.sendSetupDm(
             ctx,
-            `Правила групи збережено (${draft.rulesLanguageNameDraft ?? draft.rulesLanguageIdDraft ?? 'ua'}).`,
+            this.botT(this.kb().lang, 'rules.rulesSaved', {
+              lang:
+                draft.rulesLanguageNameDraft ??
+                draft.rulesLanguageIdDraft ??
+                'ua',
+            }),
             this.setupVenuesHubReplyMarkup(),
           );
           return;
@@ -4409,8 +4507,8 @@ export class BotUpdate {
               await this.sendSetupDm(
                 ctx,
                 dayOffset === 0
-                  ? 'На сьогодні бронювань немає. Оберіть інший день.'
-                  : 'На завтра бронювань немає. Оберіть інший день.',
+                  ? this.botT(this.kb().lang, 'setup.allBookingsEmptyToday')
+                  : this.botT(this.kb().lang, 'setup.allBookingsEmptyTomorrow'),
                 this.setupAllBookingsDayReplyMarkup(),
               );
               return;
@@ -4420,8 +4518,11 @@ export class BotUpdate {
               endTime: r.endTime,
               timeZone: r.resource.timeZone,
               resourceName: r.resource.name,
-              sportNameUa: r.sportKind.nameUa,
-              userName: (r.userName?.trim() || 'Гравець').replace(/^@+/, ''),
+              sportKindCode: r.sportKindCode,
+              userName: (
+                r.userName?.trim() ||
+                this.botT(this.kb().lang, 'setup.adminPlayerFallback')
+              ).replace(/^@+/, ''),
             }));
             const rowLabels = items.map((it) =>
               this.buildAdminAllBookingButtonLabel(it),
@@ -4435,8 +4536,8 @@ export class BotUpdate {
             await this.sendSetupDm(
               ctx,
               dayOffset === 0
-                ? 'Усі бронювання на сьогодні:'
-                : 'Усі бронювання на завтра:',
+                ? this.botT(this.kb().lang, 'setup.allBookingsHeaderToday')
+                : this.botT(this.kb().lang, 'setup.allBookingsHeaderTomorrow'),
               this.adminAllBookingsReplyMarkup(rowLabels),
             );
             return;
@@ -4452,7 +4553,10 @@ export class BotUpdate {
                 ) {
                   await this.sendSetupDm(
                     ctx,
-                    'Недостатньо прав для скасування бронювання.',
+                    this.botT(
+                      this.kb().lang,
+                      'setup.adminCancelBookingNoPermission',
+                    ),
                   );
                   return;
                 }
@@ -4464,6 +4568,7 @@ export class BotUpdate {
                     telegramChatId: targetGroupChatId,
                     telegramUserId: ctx.from.id,
                     asGroupAdmin: true,
+                    noticeLocale: this.kb().lang,
                   });
                   await this.sendBookingCancellationAlerts(ctx, notify);
                   const rowsAfter =
@@ -4479,7 +4584,10 @@ export class BotUpdate {
                     this.setupDrafts.set(sk, draft);
                     await this.sendSetupDm(
                       ctx,
-                      'Бронювання скасовано. На цей день більше немає активних бронювань. Оберіть день:',
+                      this.botT(
+                        this.kb().lang,
+                        'setup.allBookingsCanceledPickDay',
+                      ),
                       this.setupAllBookingsDayReplyMarkup(),
                     );
                     return;
@@ -4489,11 +4597,11 @@ export class BotUpdate {
                     endTime: r.endTime,
                     timeZone: r.resource.timeZone,
                     resourceName: r.resource.name,
-                    sportNameUa: r.sportKind.nameUa,
-                    userName: (r.userName?.trim() || 'Гравець').replace(
-                      /^@+/,
-                      '',
-                    ),
+                    sportKindCode: r.sportKindCode,
+                    userName: (
+                      r.userName?.trim() ||
+                      this.botT(this.kb().lang, 'setup.adminPlayerFallback')
+                    ).replace(/^@+/, ''),
                   }));
                   const rowLabelsAfter = itemsAfter.map((it) =>
                     this.buildAdminAllBookingButtonLabel(it),
@@ -4506,8 +4614,14 @@ export class BotUpdate {
                   await this.sendSetupDm(
                     ctx,
                     dayKeep === 0
-                      ? 'Бронювання скасовано. Усі бронювання на сьогодні:'
-                      : 'Бронювання скасовано. Усі бронювання на завтра:',
+                      ? this.botT(
+                          this.kb().lang,
+                          'setup.allBookingsCanceledHeaderToday',
+                        )
+                      : this.botT(
+                          this.kb().lang,
+                          'setup.allBookingsCanceledHeaderTomorrow',
+                        ),
                     this.adminAllBookingsReplyMarkup(rowLabelsAfter),
                   );
                   return;
@@ -4515,7 +4629,14 @@ export class BotUpdate {
                   if (e instanceof BookingNotFoundError) {
                     await this.sendSetupDm(
                       ctx,
-                      'Запис не знайдено або вже скасовано. Оберіть день «Сьогодні» або «Завтра», щоб оновити список.',
+                      this.botT(
+                        this.kb().lang,
+                        'setup.allBookingsNotFoundRefresh',
+                        {
+                          today: this.kb().menuDayToday,
+                          tomorrow: this.kb().menuDayTomorrow,
+                        },
+                      ),
                       this.setupAllBookingsDayReplyMarkup(),
                     );
                     return;
@@ -4527,7 +4648,10 @@ export class BotUpdate {
           }
           await this.sendSetupDm(
             ctx,
-            'Оберіть день: «Сьогодні» або «Завтра».',
+            this.botT(this.kb().lang, 'setup.allBookingsPickDayHint', {
+              today: this.kb().menuDayToday,
+              tomorrow: this.kb().menuDayTomorrow,
+            }),
             this.setupAllBookingsDayReplyMarkup(),
           );
           return;
@@ -4572,7 +4696,7 @@ export class BotUpdate {
             this.setupDrafts.set(sk, draft);
             await this.sendSetupDm(
               ctx,
-              'Виберіть майданчик або додайте новий. Часовий пояс, час та адреса вказуються для кожного майданчика окремо.',
+              this.botT(this.kb().lang, 'setup.venuesPickIntro'),
               this.setupPickResourceReplyMarkup(list),
             );
             return;
@@ -4582,7 +4706,7 @@ export class BotUpdate {
             if (langs.length === 0) {
               await this.sendSetupDm(
                 ctx,
-                'Не знайдено доступних мов. Додайте мови до таблиці languages.',
+                this.botT(this.kb().lang, 'setup.noLanguagesInDb'),
               );
               return;
             }
@@ -4592,7 +4716,7 @@ export class BotUpdate {
             this.setupDrafts.set(sk, draft);
             await this.sendSetupDm(
               ctx,
-              'Оберіть мову, для якої хочете створити або змінити правила:',
+              this.botT(this.kb().lang, 'setup.rulesPickCreateLanguage'),
               this.setupRulesLanguageReplyMarkup(langs),
             );
             return;
@@ -4603,7 +4727,9 @@ export class BotUpdate {
             if (!comm) {
               await this.sendSetupDm(
                 ctx,
-                'Спочатку налаштуйте майданчик у розділі «Майданчики».',
+                this.botT(this.kb().lang, 'setup.configureVenueFirst', {
+                  venues: this.kb().setupVenues,
+                }),
               );
               return;
             }
@@ -4613,10 +4739,9 @@ export class BotUpdate {
             this.setupDrafts.set(sk, draft);
             await this.sendSetupDm(
               ctx,
-              `Час бронювання в групі\n\n` +
-                `Зараз: ${this.formatBookingWindowSummary(comm)}.\n\n` +
-                `Учасники бачать меню завжди, але оформити нове бронювання зможуть лише в цей проміжок часу (за місцевим часом у вибраному часовому поясі).\n\n` +
-                `Крок 1/3: часовий пояс для вікна:`,
+              this.botT(this.kb().lang, 'setup.bookingWindowWizardIntro', {
+                current: this.formatBookingWindowSummary(comm),
+              }),
               this.setupTzReplyMarkup(),
             );
             return;
@@ -4627,7 +4752,9 @@ export class BotUpdate {
             if (!comm) {
               await this.sendSetupDm(
                 ctx,
-                'Спочатку налаштуйте майданчик у розділі «Майданчики».',
+                this.botT(this.kb().lang, 'setup.configureVenueFirst', {
+                  venues: this.kb().setupVenues,
+                }),
               );
               return;
             }
@@ -4640,10 +4767,9 @@ export class BotUpdate {
             this.setupDrafts.set(sk, draft);
             await this.sendSetupDm(
               ctx,
-              `Ліміт на бронювання\n\n` +
-                `Скільки годин один користувач може забронювати протягом календарного дня для кожного дня тижня (окремо для кожного майданчика). День тижня та дата — за часовим поясом майданчика, на який здійснюється бронювання; одне бронювання не може перевищувати ліміт на цей день.\n\n` +
-                `${this.formatUserBookingLimitsSummary(limits)}\n\n` +
-                `Виберіть день тижня:`,
+              this.botT(this.kb().lang, 'setup.limitWizardIntro', {
+                summary: this.formatUserBookingLimitsSummary(limits),
+              }),
               this.setupLimitWeekdayReplyMarkup(),
             );
             return;
@@ -4656,7 +4782,7 @@ export class BotUpdate {
             this.setupDrafts.set(sk, draft);
             await this.sendSetupDm(
               ctx,
-              'Усі бронювання. Оберіть день:',
+              this.botT(this.kb().lang, 'setup.allBookingsPickDayTitle'),
               this.setupAllBookingsDayReplyMarkup(),
             );
             return;
@@ -4694,7 +4820,7 @@ export class BotUpdate {
             if (linkable.length === 0) {
               await this.sendSetupDm(
                 ctx,
-                `Немає доступних майданчиків для привʼязки. Ви бачите лише ресурси з тих груп, де ви адмін, і які ще не додані в поточну групу.`,
+                this.botT(this.kb().lang, 'setup.linkNoCandidates'),
               );
               return;
             }
@@ -4702,7 +4828,7 @@ export class BotUpdate {
             this.setupDrafts.set(sk, draft);
             await this.sendSetupDm(
               ctx,
-              'Виберіть майданчик для привʼязки до цієї групи:',
+              this.botT(this.kb().lang, 'setup.linkPickPrompt'),
               this.setupLinkExistingResourceReplyMarkup(linkable),
             );
             return;
@@ -4755,7 +4881,9 @@ export class BotUpdate {
           if (!m) {
             await this.sendSetupDm(
               ctx,
-              `Виберіть номер зі списку або натисніть «${this.kb().menuBack}».`,
+              this.botT(this.kb().lang, 'setup.pickNumberOrBackButton', {
+                back: this.kb().menuBack,
+              }),
             );
             return;
           }
@@ -4764,7 +4892,9 @@ export class BotUpdate {
           if (!picked) {
             await this.sendSetupDm(
               ctx,
-              `Виберіть номер зі списку або натисніть «${this.kb().menuBack}».`,
+              this.botT(this.kb().lang, 'setup.pickNumberOrBackButton', {
+                back: this.kb().menuBack,
+              }),
             );
             return;
           }
@@ -4778,7 +4908,7 @@ export class BotUpdate {
             this.logger.error(e instanceof Error ? e.message : e);
             await this.sendSetupDm(
               ctx,
-              'Не вдалося привʼязати майданчик. Перевірте права доступу та спробуйте ще раз.',
+              this.botT(this.kb().lang, 'setup.linkFailed'),
             );
             return;
           }
@@ -4786,7 +4916,7 @@ export class BotUpdate {
           this.setupDrafts.set(sk, draft);
           await this.sendSetupDm(
             ctx,
-            `Готово: майданчик «${picked.name}» привʼязано до групи.`,
+            this.botT(this.kb().lang, 'setup.linkDone', { name: picked.name }),
             this.setupVenuesHubReplyMarkup(),
           );
           return;
@@ -4820,7 +4950,7 @@ export class BotUpdate {
           this.setupDrafts.set(sk, draft);
           await this.sendSetupDm(
             ctx,
-            'Новий майданчик.\n\n' +
+            this.botT(this.kb().lang, 'setup.newVenueIntro') +
               this.setupStep1PromptText(chatTitle, {
                 newResource: true,
                 stepMax: this.setupStepMax(draft),
@@ -4833,7 +4963,9 @@ export class BotUpdate {
         if (!m) {
           await this.sendSetupDm(
             ctx,
-            `Виберіть номер зі списку або натисніть «${this.kb().setupNewResource}».`,
+            this.botT(this.kb().lang, 'setup.pickNumberOrNewResource', {
+              newResource: this.kb().setupNewResource,
+            }),
           );
           return;
         }
@@ -4842,7 +4974,9 @@ export class BotUpdate {
         if (!r) {
           await this.sendSetupDm(
             ctx,
-            `Виберіть номер зі списку або натисніть «${this.kb().setupNewResource}».`,
+            this.botT(this.kb().lang, 'setup.pickNumberOrNewResource', {
+              newResource: this.kb().setupNewResource,
+            }),
           );
           return;
         }
@@ -4857,7 +4991,7 @@ export class BotUpdate {
         this.setupDrafts.set(sk, draft);
         await this.sendSetupDm(
           ctx,
-          `Вибраний майданчик «${r.name}».\n\n` +
+          this.botT(this.kb().lang, 'setup.pickedVenueHeader', { name: r.name }) +
             this.setupStep1PromptText(chatTitle, {
               existingResourceName: r.name,
               multiFlow: draft.multiResourceFlow,
@@ -4874,7 +5008,9 @@ export class BotUpdate {
             this.setupDrafts.set(sk, draft);
             await this.sendSetupDm(
               ctx,
-              `Вибраний майданчик «${draft.setupResourceLabel ?? '…'}».\n\n` +
+              this.botT(this.kb().lang, 'setup.pickedVenueHeader', {
+                name: draft.setupResourceLabel ?? '\u2026',
+              }) +
                 this.setupStep1PromptText(chatTitle, {
                   existingResourceName: draft.setupResourceLabel,
                   multiFlow: !!draft.multiResourceFlow,
@@ -4897,7 +5033,7 @@ export class BotUpdate {
             if (!(await this.isAdminInContextGroup(ctx, targetGroupChatId))) {
               await this.sendSetupDm(
                 ctx,
-                'Недостатньо прав для видалення майданчика.',
+                this.botT(this.kb().lang, 'setup.deleteResourceNoPermission'),
               );
               return;
             }
@@ -4922,19 +5058,25 @@ export class BotUpdate {
                 await this.resources.listForChat(targetGroupChatId);
               const doneMsg =
                 result.mode === 'unlinked'
-                  ? `Майданчик «${result.resourceName}» відвʼязано від цієї групи. Усі бронювання та ліміти для нього тут видалено. Для інших груп, де він ще привʼязаний, нічого не змінилося.`
-                  : `Майданчик «${result.resourceName}» повністю видалено (усі бронювання, привʼязки та години роботи).`;
+                  ? this.botT(this.kb().lang, 'setup.deleteUnlinkedResult', {
+                      name: result.resourceName,
+                    })
+                  : this.botT(this.kb().lang, 'setup.deleteFullRemovedResult', {
+                      name: result.resourceName,
+                    });
               await this.sendSetupDm(
                 ctx,
-                `${doneMsg}\n\nВиберіть майданчик або додайте новий.`,
+                this.botT(this.kb().lang, 'setup.pickVenueOrAddAfterChange', {
+                  done: doneMsg,
+                }),
                 this.setupPickResourceReplyMarkup(listBack),
               );
             } catch (e) {
               const msg =
                 e instanceof Error &&
                 e.message === 'RESOURCE_NOT_LINKED_TO_CHAT'
-                  ? 'Майданчик уже не привʼязано до цієї групи або його видалено.'
-                  : 'Не вдалося видалити майданчик. Спробуйте пізніше.';
+                  ? this.botT(this.kb().lang, 'setup.deleteNotLinkedOrRemoved')
+                  : this.botT(this.kb().lang, 'setup.deleteFailedTryLater');
               if (
                 !(
                   e instanceof Error &&
@@ -4959,7 +5101,10 @@ export class BotUpdate {
           }
           await this.sendSetupDm(
             ctx,
-            'Натисніть «Підтвердити видалення» або «Назад».',
+            this.botT(this.kb().lang, 'setup.deleteConfirmInstruction', {
+              confirm: this.kb().setupConfirmDeleteResource,
+              back: this.kb().menuBack,
+            }),
             this.setupResourceDeleteConfirmReplyMarkup(),
           );
           return;
@@ -4973,7 +5118,7 @@ export class BotUpdate {
           if (!(await this.isAdminInContextGroup(ctx, targetGroupChatId))) {
             await this.sendSetupDm(
               ctx,
-              'Недостатньо прав для видалення майданчика.',
+              this.botT(this.kb().lang, 'setup.deleteResourceNoPermission'),
             );
             return;
           }
@@ -4981,10 +5126,12 @@ export class BotUpdate {
           this.setupDrafts.set(sk, draft);
           await this.sendSetupDm(
             ctx,
-            `Видалити майданчик «${draft.setupResourceLabel ?? ''}»?\n\n` +
-              `Усі бронювання в цій групі для цього майданчика буде видалено з бази без окремих сповіщень у чатах.\n\n` +
-              `Якщо майданчик привʼязаний ще до інших груп — він залишиться там; з вашої групи зніметься лише привʼязка та локальні броні й ліміти.\n` +
-              `Якщо він лише у вашій групі — запис майданчика повністю зникне (розклад по днях теж).`,
+            this.botT(this.kb().lang, 'setup.deleteConfirmTitle', {
+              name: draft.setupResourceLabel ?? '',
+            }) +
+              this.botT(this.kb().lang, 'setup.deleteConfirmBody1') +
+              this.botT(this.kb().lang, 'setup.deleteConfirmBody2') +
+              this.botT(this.kb().lang, 'setup.deleteConfirmBody3'),
             this.setupResourceDeleteConfirmReplyMarkup(),
           );
           return;
@@ -5008,7 +5155,7 @@ export class BotUpdate {
           const listBack = await this.resources.listForChat(targetGroupChatId);
           await this.sendSetupDm(
             ctx,
-            'Виберіть майданчик або додайте новий. Часовий пояс, час та адреса вказуються для кожного майданчика окремо.',
+            this.botT(this.kb().lang, 'setup.venuesPickIntro'),
             this.setupPickResourceReplyMarkup(listBack),
           );
           return;
@@ -5019,7 +5166,7 @@ export class BotUpdate {
             if (draft.creatingNewResource) {
               await this.sendSetupDm(
                 ctx,
-                'Для нового майданчика введіть назву у вигляді тексту (не порожню).',
+                this.botT(this.kb().lang, 'setup.step1NameNewResourceText'),
               );
             }
             return;
@@ -5029,7 +5176,7 @@ export class BotUpdate {
           if (draft.creatingNewResource) {
             await this.sendSetupDm(
               ctx,
-              'Для нового майданчика введіть свою назву текстом, а не з назви чату.',
+              this.botT(this.kb().lang, 'setup.step1NameFromChatNotForNew'),
             );
             return;
           }
@@ -5037,7 +5184,7 @@ export class BotUpdate {
           if (!t) {
             await this.sendSetupDm(
               ctx,
-              'Не вдалося отримати назву чату. Введіть назву у вигляді тексту.',
+              this.botT(this.kb().lang, 'setup.step1ChatTitleMissing'),
             );
             return;
           }
@@ -5048,17 +5195,21 @@ export class BotUpdate {
             await this.sendSetupDm(
               ctx,
               draft.setupResourceLabel
-                ? 'Введіть назву у вигляді тексту або натисніть «Залишити назву без змін».'
+                ? this.botT(this.kb().lang, 'setup.step1NameOrKeep', {
+                    keep: this.kb().setupKeepBotName,
+                  })
                 : draft.creatingNewResource
-                  ? 'Введіть назву майданчика у вигляді тексту (не порожнє поле).'
-                  : 'Введіть назву майданчика у вигляді тексту або натисніть «Назва, як у чаті».',
+                  ? this.botT(this.kb().lang, 'setup.step1NameRequired')
+                  : this.botT(this.kb().lang, 'setup.step1NameOrChatTitle', {
+                      useChatTitle: this.kb().setupUseChatTitle,
+                    }),
             );
             return;
           }
           if (trimmed.length > 200) {
             await this.sendSetupDm(
               ctx,
-              'Назва занадто довга (максимум 200 символів).',
+              this.botT(this.kb().lang, 'setup.nameTooLong'),
             );
             return;
           }
@@ -5092,7 +5243,7 @@ export class BotUpdate {
           await this.sendSetupDm(
             ctx,
             draft.creatingNewResource && !draft.setupResourceLabel
-              ? 'Новая площадка.\n\n' +
+              ? this.botT(this.kb().lang, 'setup.newVenueIntro') +
                   this.setupStep1PromptText(chatTitle, {
                     newResource: true,
                     stepMax: this.setupStepMax(draft),
@@ -5125,15 +5276,17 @@ export class BotUpdate {
             await this.sendSetupDm(
               ctx,
               draft.setupResourceAddressLabel?.trim()
-                ? 'Введіть адресу у текстовому полі або натисніть кнопку нижче.'
-                : 'Введіть адресу у вигляді тексту або натисніть «Без адреси».',
+                ? this.botT(this.kb().lang, 'setup.addressTextOrButton')
+                : this.botT(this.kb().lang, 'setup.addressTextOrNoAddress', {
+                    noAddress: this.kb().setupNoAddress,
+                  }),
             );
             return;
           }
           if (trimmed.length > 300) {
             await this.sendSetupDm(
               ctx,
-              'Адреса занадто довга (максимум 300 символів).',
+              this.botT(this.kb().lang, 'setup.addressTooLong'),
             );
             return;
           }
@@ -5188,13 +5341,17 @@ export class BotUpdate {
           this.setupDrafts.set(sk, draft);
           const cur =
             draft.setupResourceVisibility === ResourceVisibility.INACTIVE
-              ? 'неактивна (у бронюванні для звичайних учасників не відображається)'
-              : 'активна';
+              ? this.botT(
+                  this.kb().lang,
+                  'setup.visibilityCurrentInactive',
+                )
+              : this.botT(this.kb().lang, 'setup.visibilityCurrentActive');
           await this.sendSetupDm(
             ctx,
-            `${this.setupStepLine(6, draft)}: статус майданчика.\n\n` +
-              `Зараз у боті: ${cur}.\n\n` +
-              `Виберіть статус — далі одразу налаштування годин за днями тижня:`,
+            this.botT(this.kb().lang, 'setup.step6StatusAfterTz', {
+              stepLine: this.setupStepLine(6, draft),
+              current: cur,
+            }),
             this.setupResourceVisibilityReplyMarkup(),
           );
           return;
@@ -5218,7 +5375,9 @@ export class BotUpdate {
           this.setupDrafts.set(sk, draft);
           await this.sendSetupDm(
             ctx,
-            `${this.setupStepLine(3, draft)}: часовий пояс (слоти будуть у цьому поясі)`,
+            this.botT(this.kb().lang, 'setup.step3TzCaption', {
+              stepLine: this.setupStepLine(3, draft),
+            }),
             this.setupTzReplyMarkup(),
           );
           return;
@@ -5229,7 +5388,10 @@ export class BotUpdate {
         }
         const hour = Number(hm[1]);
         if (!Number.isInteger(hour) || hour < 0 || hour > 22) {
-          await this.sendSetupDm(ctx, 'Оберіть час роботи з 00:00 до 22:00.');
+          await this.sendSetupDm(
+            ctx,
+            this.botT(this.kb().lang, 'setup.workingHoursPickRange'),
+          );
           return;
         }
         draft.slotStart = hour;
@@ -5238,7 +5400,10 @@ export class BotUpdate {
         this.setupDrafts.set(sk, draft);
         await this.sendSetupDm(
           ctx,
-          `${this.setupStepLine(5, draft)}: час закінчення роботи — до обраного часу всі бронювання мають завершитися (відкриття: ${String(hour).padStart(2, '0')}:00)`,
+          this.botT(this.kb().lang, 'setup.step5ClosingHours', {
+            stepLine: this.setupStepLine(5, draft),
+            hour: String(hour).padStart(2, '0'),
+          }),
           this.setupClosingHourReplyMarkup(hour),
         );
         return;
@@ -5251,7 +5416,9 @@ export class BotUpdate {
           this.setupDrafts.set(sk, draft);
           await this.sendSetupDm(
             ctx,
-            `${this.setupStepLine(4, draft)}: час відкриття — найраніший можливий час початку бронювання`,
+            this.botT(this.kb().lang, 'setup.step4OpeningHours', {
+              stepLine: this.setupStepLine(4, draft),
+            }),
             this.setupStartHourReplyMarkup(),
           );
           return;
@@ -5273,7 +5440,7 @@ export class BotUpdate {
         if (closeHour <= start) {
           await this.sendSetupDm(
             ctx,
-            'Закінчення має бути пізніше за час початку. Оберіть інший час.',
+            this.botT(this.kb().lang, 'setup.endAfterStartPickOther'),
           );
           return;
         }
@@ -5290,7 +5457,7 @@ export class BotUpdate {
           await this.replyWithMainMenuInDmForGroup(
             ctx,
             targetGroupChatId,
-            'Сесія налаштування застаріла. Запустіть /setup у групі ще раз.',
+            this.botT(this.kb().lang, 'setup.sessionStale'),
           );
           return;
         }
@@ -5300,13 +5467,17 @@ export class BotUpdate {
           this.setupDrafts.set(sk, draft);
           const cur =
             draft.setupResourceVisibility === ResourceVisibility.INACTIVE
-              ? 'неактивна (у бронюванні для звичайних учасників не відображається)'
-              : 'активна';
+              ? this.botT(
+                  this.kb().lang,
+                  'setup.visibilityCurrentInactive',
+                )
+              : this.botT(this.kb().lang, 'setup.visibilityCurrentActive');
           await this.sendSetupDm(
             ctx,
-            `${this.setupStepLine(6, draft)}: статус майданчика.\n\n` +
-              `Зараз у боті: ${cur}.\n\n` +
-              `Виберіть статус — він збережеться разом із часом та адресою:`,
+            this.botT(this.kb().lang, 'setup.step6StatusWithHours', {
+              stepLine: this.setupStepLine(6, draft),
+              current: cur,
+            }),
             this.setupResourceVisibilityReplyMarkup(),
           );
           return;
@@ -5330,7 +5501,9 @@ export class BotUpdate {
             this.setupDrafts.set(sk, draft);
             await this.sendSetupDm(
               ctx,
-              `${this.setupStepLine(3, draft)}: часовий пояс (слоти будуть у цьому поясі)`,
+              this.botT(this.kb().lang, 'setup.step3TzCaption', {
+                stepLine: this.setupStepLine(3, draft),
+              }),
               this.setupTzReplyMarkup(),
             );
             return;
@@ -5362,13 +5535,16 @@ export class BotUpdate {
             await this.replyWithMainMenuInDmForGroup(
               ctx,
               targetGroupChatId,
-              'Сесія налаштування застаріла. Запустіть /setup у групі ще раз.',
+              this.botT(this.kb().lang, 'setup.sessionStale'),
             );
             return;
           }
           await this.sendSetupDm(
             ctx,
-            `${this.setupStepLine(5, draft)}: час закінчення роботи — до обраного часу всі бронювання мають завершитися (відкриття: ${String(hour).padStart(2, '0')}:00)`,
+            this.botT(this.kb().lang, 'setup.step5ClosingHours', {
+              stepLine: this.setupStepLine(5, draft),
+              hour: String(hour).padStart(2, '0'),
+            }),
             this.setupClosingHourReplyMarkup(hour),
           );
           return;
@@ -5488,7 +5664,14 @@ export class BotUpdate {
         callback_data: `userlang:${targetUserId}:${l.id}`,
       },
     ]);
-    const introLang = await this.langForDmUser(targetUserId, null);
+    const effId = await this.telegramMembers.getEffectiveLanguageId({
+      telegramChatId: null,
+      telegramUserId: targetUserId,
+    });
+    const introLang =
+      effId != null && effId.length > 0
+        ? resolveUiLang(effId)
+        : UI_LANGUAGE_PROMPT_NEUTRAL_LANG;
     const intro = this.botT(introLang, 'rules.languagePickerIntro');
     await telegram.sendMessage(targetUserId, intro, {
       reply_markup: { inline_keyboard: rows },
@@ -5500,13 +5683,14 @@ export class BotUpdate {
       return;
     }
     this.resetMenuState(ctx);
+    const lang = await this.langForCtx(ctx);
     const gid = await this.promptGroupPickerInDm(ctx, {
-      hint: 'Оберіть групу для роботи:',
+      hint: this.botT(lang, 'dm.pickGroupHint'),
     });
     if (gid == null) {
       return;
     }
-    await ctx.reply('Головне меню:', await this.mainMenuReplyMarkup(ctx));
+    await ctx.reply(this.botT(lang, 'menu.title'), await this.mainMenuReplyMarkup(ctx));
   }
 
   private async sendLanguagePickerMessages(
@@ -5523,7 +5707,14 @@ export class BotUpdate {
         callback_data: `lang:${targetUserId}:${groupStr}:${l.id}`,
       },
     ]);
-    const introLang = await this.langForDmUser(targetUserId, groupChatId);
+    const effId = await this.telegramMembers.getEffectiveLanguageId({
+      telegramChatId: groupChatId,
+      telegramUserId: targetUserId,
+    });
+    const introLang =
+      effId != null && effId.length > 0
+        ? resolveUiLang(effId)
+        : UI_LANGUAGE_PROMPT_NEUTRAL_LANG;
     const intro = this.botT(introLang, 'rules.languagePickerIntro');
     const extra = {
       reply_markup: { inline_keyboard: rows },
@@ -5690,7 +5881,10 @@ export class BotUpdate {
               try {
                 const sent = await ctx.telegram.sendMessage(
                   chat.id,
-                  this.botT(memberLbl.lang, 'rules.chooseLanguageInDm'),
+                  this.botT(
+                    UI_LANGUAGE_PROMPT_NEUTRAL_LANG,
+                    'rules.chooseLanguageInDm',
+                  ),
                 );
                 this.deleteMessageLater(
                   ctx.telegram,
@@ -5792,20 +5986,66 @@ export class BotUpdate {
     }
     const groupChatId = BigInt(ctx.chat.id);
     const actorId = up.from?.id ?? ctx.from?.id;
+    const actorEffLang =
+      actorId != null
+        ? await this.telegramMembers.getEffectiveLanguageId({
+            telegramChatId: groupChatId,
+            telegramUserId: actorId,
+          })
+        : null;
     const actorLbl =
       actorId != null
         ? await this.labelsForUserInGroup(groupChatId, actorId)
-        : this.L(UI_FALLBACK_LANGUAGE);
+        : this.L(UI_LANGUAGE_PROMPT_NEUTRAL_LANG);
     if (nu.status === 'administrator') {
+      if (actorId != null && actorEffLang == null) {
+        try {
+          const { usedDm } = await this.sendLanguagePickerMessages(
+            ctx.telegram,
+            groupChatId,
+            actorId,
+            { allowGroupFallback: true },
+          );
+          if (usedDm) {
+            try {
+              const sent = await ctx.reply(
+                this.botT(
+                  UI_LANGUAGE_PROMPT_NEUTRAL_LANG,
+                  'rules.chooseLanguageInDm',
+                ),
+              );
+              this.deleteMessageLater(
+                ctx.telegram,
+                Number(ctx.chat.id),
+                sent.message_id,
+                5000,
+              );
+            } catch (e) {
+              this.logger.warn(
+                `my_chat_member language ping: ${e instanceof Error ? e.message : String(e)}`,
+              );
+            }
+          }
+        } catch (e) {
+          this.logger.warn(
+            `my_chat_member language picker: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        }
+        return;
+      }
       await ctx.reply(
         this.botT(actorLbl.lang, 'group.botAddedIntro'),
         this.groupEntryReplyMarkupForChatUser(actorLbl),
       );
       return;
     }
+    const needsAdminLbl =
+      actorId != null && actorEffLang != null
+        ? actorLbl
+        : this.L(UI_LANGUAGE_PROMPT_NEUTRAL_LANG);
     await ctx.reply(
-      this.botT(actorLbl.lang, 'group.botNeedsAdmin'),
-      this.groupEntryReplyMarkupForChatUser(actorLbl),
+      this.botT(needsAdminLbl.lang, 'group.botNeedsAdmin'),
+      this.groupEntryReplyMarkupForChatUser(needsAdminLbl),
     );
   }
 
@@ -5844,14 +6084,16 @@ export class BotUpdate {
             groupChatId,
             ctx.from.id,
           );
-          if (!rulesText) {
-            await ctx.reply('Правила для цієї групи не знайдені.');
-            return;
-          }
           const localeId = await this.telegramMembers.getEffectiveLanguageId({
             telegramChatId: groupChatId,
             telegramUserId: ctx.from.id,
           });
+          if (!rulesText) {
+            await ctx.reply(
+              this.botT(resolveUiLang(localeId), 'rules.groupRulesNotFound'),
+            );
+            return;
+          }
           this.activeGroupByUser.set(ctx.from.id, groupChatId);
           try {
             await this.sendCommunityRulesMessages(
@@ -5865,8 +6107,11 @@ export class BotUpdate {
               },
             );
           } catch {
+            const lbl = this.L(localeId);
             await ctx.reply(
-              'Не вдалося надіслати правила. Спробуйте ще раз або натисніть «Чат Бот» у групі.',
+              this.botT(lbl.lang, 'rules.sendRulesFailedRetry', {
+                chatBot: lbl.menuChatBot,
+              }),
             );
           }
           return;
@@ -6037,9 +6282,13 @@ export class BotUpdate {
       return;
     }
     if (!(await isGroupAdmin(ctx))) {
+      const adminLbl = await this.labelsForUserInGroup(
+        BigInt(ctx.chat.id),
+        ctx.from.id,
+      );
       await this.replyTransientInGroup(
         ctx,
-        'Лише адміністратор може налаштовувати майданчик.',
+        this.botT(adminLbl.lang, 'group.setupAdminOnly'),
       );
       return;
     }
@@ -6055,10 +6304,14 @@ export class BotUpdate {
       return;
     }
 
+    const titleLbl = await this.labelsForUserInGroup(
+      BigInt(ctx.chat.id),
+      ctx.from.id,
+    );
     const chatTitle =
       ctx.chat && 'title' in ctx.chat && ctx.chat.title
         ? ctx.chat.title
-        : 'Чат';
+        : this.botT(titleLbl.lang, 'setup.chatTitleFallback');
 
     const groupChatId = BigInt(ctx.chat.id);
 
@@ -6082,7 +6335,7 @@ export class BotUpdate {
       this.logger.warn(e instanceof Error ? e.message : 'setup DM failed');
       await this.replyTransientInGroup(
         ctx,
-        'Не вдалося написати вам у приватних повідомленнях. Відкрийте діалог із ботом і натисніть Start, а потім знову виконайте команду /setup у групі або натисніть «Налаштування».',
+        this.botT(titleLbl.lang, 'group.setupDmOpenFailed'),
       );
     }
   }
@@ -6099,8 +6352,9 @@ export class BotUpdate {
       return;
     }
     const { telegramUserId: expectedUserId, languageId } = parsed;
+    const cbLang = await this.langForDmUser(ctx.from.id, null);
     if (ctx.from.id !== expectedUserId) {
-      await ctx.answerCbQuery('Ця кнопка призначена не для вас.', {
+      await ctx.answerCbQuery(this.botT(cbLang, 'callbacks.wrongUser'), {
         show_alert: true,
       });
       return;
@@ -6113,7 +6367,7 @@ export class BotUpdate {
       lastName: ctx.from.last_name,
     });
     if (!saved.ok) {
-      await ctx.answerCbQuery('Не вдалося зберегти мову.', {
+      await ctx.answerCbQuery(this.botT(cbLang, 'callbacks.saveLanguageFailed'), {
         show_alert: true,
       });
       return;
@@ -6143,8 +6397,9 @@ export class BotUpdate {
     const expectedUserId = Number(mm[1]);
     const groupChatId = BigInt(mm[2]);
     const languageId = mm[3];
+    const pickLang = await this.langForDmUser(ctx.from.id, groupChatId);
     if (ctx.from.id !== expectedUserId) {
-      await ctx.answerCbQuery('Ця кнопка призначена не для вас.', {
+      await ctx.answerCbQuery(this.botT(pickLang, 'callbacks.wrongUser'), {
         show_alert: true,
       });
       return;
@@ -6155,15 +6410,18 @@ export class BotUpdate {
         ctx.from.id,
       );
       if (!TelegramMembersService.isStatusInChat(member.status)) {
-        await ctx.answerCbQuery('Ви не є учасником цієї групи.', {
+        await ctx.answerCbQuery(this.botT(pickLang, 'callbacks.notGroupMember'), {
           show_alert: true,
         });
         return;
       }
     } catch {
-      await ctx.answerCbQuery('Група недоступна або вас немає в групі.', {
-        show_alert: true,
-      });
+      await ctx.answerCbQuery(
+        this.botT(pickLang, 'callbacks.groupOrMemberUnavailable'),
+        {
+          show_alert: true,
+        },
+      );
       return;
     }
     const previousLang = await this.telegramMembers.getMembershipLanguageId({
@@ -6176,9 +6434,12 @@ export class BotUpdate {
       languageId,
     });
     if (!saved.ok) {
-      await ctx.answerCbQuery('Не вдалося зберегти мову.', {
-        show_alert: true,
-      });
+      await ctx.answerCbQuery(
+        this.botT(pickLang, 'callbacks.saveLanguageFailed'),
+        {
+          show_alert: true,
+        },
+      );
       return;
     }
     await ctx.answerCbQuery();
@@ -6285,10 +6546,14 @@ export class BotUpdate {
     }
     const expectedUserId = Number(mm[1]);
     const groupIdStr = mm[2];
+    const rulesCbLangEarly = await this.langForDmUser(ctx.from.id, null);
     if (ctx.from.id !== expectedUserId) {
-      await ctx.answerCbQuery('Ця кнопка призначена не для вас.', {
-        show_alert: true,
-      });
+      await ctx.answerCbQuery(
+        this.botT(rulesCbLangEarly, 'callbacks.wrongUser'),
+        {
+          show_alert: true,
+        },
+      );
       return;
     }
     let groupChatId: bigint | null = null;
@@ -6299,29 +6564,33 @@ export class BotUpdate {
     }
     if (groupChatId === null) {
       await ctx.answerCbQuery(
-        'Не вдалося визначити групу. Попросіть надіслати правила ще раз.',
+        this.botT(rulesCbLangEarly, 'callbacks.groupNotResolved'),
         { show_alert: true },
       );
       return;
     }
+    const rulesCbLang = await this.langForDmUser(ctx.from.id, groupChatId);
     try {
       const member = await ctx.telegram.getChatMember(
         groupChatId.toString(),
         ctx.from.id,
       );
       if (!TelegramMembersService.isStatusInChat(member.status)) {
-        await ctx.answerCbQuery('Ви не є учасником цієї групи.', {
+        await ctx.answerCbQuery(this.botT(rulesCbLang, 'callbacks.notGroupMember'), {
           show_alert: true,
         });
         await ctx.reply(
-          'Підтвердити правила можна лише для групи, учасником якої ви є зараз.',
+          this.botT(rulesCbLang, 'rules.acceptConfirmOnlyForMember'),
         );
         return;
       }
     } catch {
-      await ctx.answerCbQuery('Група недоступна або вас немає в групі.', {
-        show_alert: true,
-      });
+      await ctx.answerCbQuery(
+        this.botT(rulesCbLang, 'callbacks.groupOrMemberUnavailable'),
+        {
+          show_alert: true,
+        },
+      );
       return;
     }
     await ctx.answerCbQuery();
@@ -6330,13 +6599,13 @@ export class BotUpdate {
       telegramUserId: ctx.from.id,
     });
     if (!r.ok) {
-      await ctx.reply(
-        'Не вдалося підтвердити: правила не визначені або вас немає у списку учасників чату.',
-      );
+      await ctx.reply(this.botT(rulesCbLang, 'callbacks.rulesAcceptFailed'));
       return;
     }
     try {
-      await ctx.editMessageText('✅ Правила прийнято.');
+      await ctx.editMessageText(
+        this.botT(rulesCbLang, 'rules.acceptDoneLine'),
+      );
     } catch {
       /* не текст / нет прав */
     }
@@ -6349,8 +6618,8 @@ export class BotUpdate {
       this.activeGroupByUser.set(ctx.from.id, groupChatId);
     }
     const welcomeText = ready
-      ? '✅ Правила прийнято. Відкрийте бота в особистих повідомленнях і натисніть /start.'
-      : '✅ Правила прийнято. Майданчик ще не налаштований. Адміністратору: команда /setup.';
+      ? this.botT(rulesCbLang, 'rules.welcomeAfterAcceptReady')
+      : this.botT(rulesCbLang, 'rules.welcomeAfterAcceptNotReady');
     try {
       await ctx.telegram.sendMessage(
         ctx.from.id,
@@ -6367,12 +6636,20 @@ export class BotUpdate {
   @Action('m')
   async onMenu(@Ctx() ctx: Context) {
     await ctx.answerCbQuery();
-    if (!isGroupChat(ctx) || !ctx.chat) {
-      await ctx.reply('Доступно лише в групі.');
+    if (!ctx.from) {
       return;
     }
+    if (!isGroupChat(ctx) || !ctx.chat) {
+      const dmLang = await this.langForDmUser(ctx.from.id, null);
+      await ctx.reply(this.botT(dmLang, 'menu.actionOnlyInGroup'));
+      return;
+    }
+    const menuLbl = await this.labelsForUserInGroup(
+      BigInt(ctx.chat.id),
+      ctx.from.id,
+    );
     await ctx.reply(
-      'Відкрийте особисті повідомлення з ботом і натисніть /start.',
+      this.botT(menuLbl.lang, 'menu.openDmAndStart'),
       await this.mainMenuReplyMarkup(ctx),
     );
   }

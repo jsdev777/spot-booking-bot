@@ -145,9 +145,6 @@ describe('userlang callback security', () => {
 describe('TelegramMembersService participantMustPickLanguage', () => {
   it('is false when user has global default even if membership language is null', async () => {
     const prisma = {
-      community: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'c1' }),
-      },
       telegramUser: {
         findUnique: jest.fn().mockResolvedValue({
           id: 'u1',
@@ -171,9 +168,6 @@ describe('TelegramMembersService participantMustPickLanguage', () => {
 
   it('is true when membership language is null and user has no default', async () => {
     const prisma = {
-      community: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'c1' }),
-      },
       telegramUser: {
         findUnique: jest.fn().mockResolvedValue({
           id: 'u1',
