@@ -52,7 +52,13 @@ describe('BookingService daily limit by resource', () => {
       ),
     };
 
-    const svc = new BookingService(prisma as never, resources as never);
+    const i18n = { t: () => '' };
+    const svc = new BookingService(
+      prisma as never,
+      resources as never,
+      {} as never,
+      i18n as never,
+    );
     const baseParams = {
       telegramChatId: 1n,
       dayOffset: 0 as const,

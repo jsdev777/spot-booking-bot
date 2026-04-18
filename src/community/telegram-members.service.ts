@@ -10,7 +10,10 @@ const IN_CHAT_STATUSES = new Set([
 ]);
 
 export type RecordJoinResult = {
-  /** User must pick a per-group UI language (no membership.languageId and no TelegramUser.defaultLanguageId). */
+  /**
+   * User must pick a per-group UI language (no membership.languageId and no TelegramUser.defaultLanguageId).
+   * Applies to any linked group chat membership, including chats without a configured community.
+   */
   pendingLanguageSelection: boolean;
   /** Display the rules and wait for the button (language already chosen). */
   pendingGroupRules: boolean;
@@ -216,19 +219,12 @@ export class TelegramMembersService {
   }
 
   /**
-   * In a configured community, regular members must pick a language before rules/menu.
+   * Regular members must pick a language before rules/menu when they have no per-group or default locale.
    */
   async participantMustPickLanguage(params: {
     telegramChatId: bigint;
     telegramUserId: number;
   }): Promise<boolean> {
-    const comm = await this.prisma.community.findUnique({
-      where: { telegramChatId: params.telegramChatId },
-      select: { id: true },
-    });
-    if (!comm) {
-      return false;
-    }
     const user = await this.prisma.telegramUser.findUnique({
       where: { telegramUserId: BigInt(params.telegramUserId) },
       select: { id: true, defaultLanguageId: true },
@@ -508,21 +504,6 @@ export class TelegramMembersService {
       }
     });
 
-    if (!comm) {
-      return {
-        pendingLanguageSelection: false,
-        pendingGroupRules: false,
-        rulesText: null,
-      };
-    }
-    if (!hasRules) {
-      return {
-        pendingLanguageSelection: false,
-        pendingGroupRules: false,
-        rulesText: null,
-      };
-    }
-
     const userRow = await this.prisma.telegramUser.findUnique({
       where: { telegramUserId: BigInt(params.telegramUserId) },
       select: { id: true, defaultLanguageId: true },
@@ -549,11 +530,13 @@ export class TelegramMembersService {
     });
 
     const pendingLanguageSelection = Boolean(
-      comm && !m?.languageId && m?.isActive && !userRow.defaultLanguageId,
+      m?.isActive &&
+        m.languageId == null &&
+        userRow.defaultLanguageId == null,
     );
     const effectiveLang = m?.languageId ?? userRow.defaultLanguageId ?? null;
     const resolvedRulesText =
-      effectiveLang && hasRules
+      comm && hasRules && effectiveLang
         ? resolveCommunityRulesText(comm.rules, effectiveLang)
         : null;
     const pendingGroupRules =

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { I18nService } from 'nestjs-i18n';
 import {
   addMinutes,
   addDays,
@@ -72,7 +73,7 @@ export type BookingCancelNotification = {
   timeZone: string;
   startTime: Date;
   endTime: Date;
-  sportNameUa: string;
+  sportKindCode: SportKindCode;
 };
 
 export type TelegramFrom = {
@@ -80,19 +81,6 @@ export type TelegramFrom = {
   username?: string;
   first_name?: string;
 };
-
-/** First, your Telegram username (@username), otherwise your name; if you don't have a hidden username, use “Player”. */
-function displayUserName(from: TelegramFrom): string {
-  const uname = from.username?.trim();
-  if (uname) {
-    return `@${uname}`;
-  }
-  const fn = from.first_name?.trim();
-  if (fn) {
-    return fn;
-  }
-  return 'Гравець';
-}
 
 function localDayAnchor(now: Date, dayOffset: number, timeZone: string): Date {
   const zonedNow = toZonedTime(now, timeZone);
@@ -149,7 +137,32 @@ export class BookingService {
     private readonly prisma: PrismaService,
     private readonly resources: ResourceService,
     private readonly metrics: MetricsService,
+    private readonly i18n: I18nService,
   ) {}
+
+  private uiT(
+    lang: string,
+    key: string,
+    args?: Record<string, string | number>,
+  ): string {
+    return this.i18n.t(`bot.${key}` as never, {
+      lang,
+      args: args as Record<string, string>,
+    });
+  }
+
+  /** Telegram @username, first name, or localized “player” fallback for stored display. */
+  private displayBookerName(from: TelegramFrom, lang: string): string {
+    const uname = from.username?.trim();
+    if (uname) {
+      return `@${uname}`;
+    }
+    const fn = from.first_name?.trim();
+    if (fn) {
+      return fn;
+    }
+    return this.uiT(lang, 'setup.adminPlayerFallback');
+  }
 
   private reserveCreateGate(
     key: string,
@@ -490,6 +503,8 @@ export class BookingService {
     requiredPlayers?: number;
     now?: Date;
     telegramGroupAdmin?: boolean;
+    /** Resolved UI locale (e.g. ua, en) for stored display name fallback. */
+    displayLocale: string;
   }) {
     const startedAtMs = Date.now();
     if (params.dayOffset !== 0 && params.dayOffset !== 1) {
@@ -557,7 +572,10 @@ export class BookingService {
       }
     }
 
-    const userName = displayUserName(params.from);
+    const userName = this.displayBookerName(
+      params.from,
+      params.displayLocale,
+    );
     const looking = params.isLookingForPlayers === true;
     const requiredPlayers = looking ? (params.requiredPlayers ?? 0) : 0;
     if (looking && (requiredPlayers < 1 || requiredPlayers > 50)) {
@@ -641,8 +659,10 @@ export class BookingService {
     bookingId: string;
     telegramChatId: bigint;
     telegramUserId: number;
-    /** Скасування чужого бронювання адміністратором групи (перевірку прав Telegram робить бот). */
+    /** Group admin cancels someone else's booking (Telegram admin rights are enforced by the bot). */
     asGroupAdmin?: boolean;
+    /** Locale for DM notice text. */
+    noticeLocale: string;
   }): Promise<BookingCancelNotification> {
     const whereCommon = {
       id: params.bookingId,
@@ -672,15 +692,23 @@ export class BookingService {
     const day = formatInTimeZone(booking.startTime, tz, 'dd.MM.yyyy');
     const a = formatInTimeZone(booking.startTime, tz, 'HH:mm');
     const z = formatInTimeZone(booking.endTime, tz, 'HH:mm');
-    const sport = booking.sportKind.nameUa.trim() || booking.sportKindCode;
+    const lang = params.noticeLocale;
     const intro = params.asGroupAdmin
-      ? 'Бронювання скасовано адміністратором групи.'
-      : 'Бронювання скасовано організатором.';
+      ? this.uiT(lang, 'book.cancelDmIntroAdmin')
+      : this.uiT(lang, 'book.cancelDmIntroOrganizer');
+    const sportLabel = this.uiT(lang, `sport.${booking.sportKindCode}`);
     const cancelNoticeText =
       `${intro}\n\n` +
-      `Майданчик: «${booking.resource.name}»\n` +
-      `Час: ${day} ${a}–${z} (${tz})\n` +
-      `Спорт: ${sport}`;
+      `${this.uiT(lang, 'book.cancelDmVenue', {
+        resource: booking.resource.name,
+      })}\n` +
+      `${this.uiT(lang, 'book.cancelDmWhen', {
+        day,
+        timeFrom: a,
+        timeTo: z,
+        tz,
+      })}\n` +
+      `${this.uiT(lang, 'book.cancelDmSport', { sport: sportLabel })}`;
 
     const organizerId = Number(booking.userId);
     const fromParticipants = booking.lookingParticipants.map((p) =>
@@ -720,7 +748,7 @@ export class BookingService {
       timeZone: tz,
       startTime: booking.startTime,
       endTime: booking.endTime,
-      sportNameUa: String(sport),
+      sportKindCode: booking.sportKindCode,
     };
   }
 
@@ -830,7 +858,7 @@ export class BookingService {
       timeZone: string;
       startTime: Date;
       endTime: Date;
-      sportNameUa: string;
+      sportKindCode: SportKindCode;
     };
   }> {
     return this.prisma.$transaction(async (tx) => {
@@ -922,7 +950,7 @@ export class BookingService {
           timeZone: full.resource.timeZone,
           startTime: full.startTime,
           endTime: full.endTime,
-          sportNameUa: full.sportKind.nameUa.trim() || full.sportKindCode,
+          sportKindCode: full.sportKindCode,
         },
       };
     });
@@ -954,6 +982,7 @@ export class BookingService {
     dayOffset: number;
     now?: Date;
     telegramGroupAdmin?: boolean;
+    displayLocale: string;
   }): Promise<string> {
     const ctx = await this.loadResourceDayBookings({
       resourceId: params.resourceId,
@@ -963,8 +992,9 @@ export class BookingService {
       telegramGroupAdmin: params.telegramGroupAdmin,
       forDayGridDisplay: true,
     });
+    const lang = params.displayLocale;
     if (!ctx) {
-      return `Об'єкт не знайдено.`;
+      return this.uiT(lang, 'grid.notFound');
     }
     const {
       res,
@@ -979,47 +1009,63 @@ export class BookingService {
 
     const label =
       params.dayOffset === 0
-        ? 'Сьогодні'
+        ? this.uiT(lang, 'grid.dayToday')
         : params.dayOffset === 1
-          ? 'Завтра'
-          : `День +${params.dayOffset}`;
+          ? this.uiT(lang, 'grid.dayTomorrow')
+          : this.uiT(lang, 'grid.dayPlus', { n: String(params.dayOffset) });
 
-    const lines = [`${res.name} — ${label} (${timeZone}):`, ''];
+    const lines = [
+      this.uiT(lang, 'grid.header', {
+        resource: res.name,
+        day: label,
+        tz: timeZone,
+      }),
+      '',
+    ];
 
     if (bookings.length > 0) {
-      lines.push('Бронювання:');
+      lines.push(this.uiT(lang, 'grid.bookingsHeader'));
       for (const b of bookings) {
-        const raw = b.userName?.trim() || 'Гравець';
-        const name = raw.replace(/^@+/, '').trim() || 'Гравець';
-        const sport = b.sportKind.nameUa.trim() || b.sportKindCode;
+        const raw = b.userName?.trim();
+        const name =
+          (raw ? raw.replace(/^@+/, '').trim() : '') ||
+          this.uiT(lang, 'setup.adminPlayerFallback');
+        const sport = this.uiT(lang, `sport.${b.sportKindCode}`);
         const a = formatInTimeZone(b.startTime, timeZone, 'HH:mm');
         const z = formatInTimeZone(b.endTime, timeZone, 'HH:mm');
-        lines.push(`🔴 ${a}–${z} (${sport}) — ${name}`);
+        lines.push(
+          this.uiT(lang, 'grid.bookingRow', {
+            from: a,
+            to: z,
+            sport,
+            name,
+          }),
+        );
       }
       lines.push('');
     }
 
     if (dayClosed) {
-      lines.push('Цього дня майданчик не працює.');
+      lines.push(this.uiT(lang, 'grid.dayClosed'));
       return lines.join('\n');
     }
 
-    lines.push('По годинам:');
+    lines.push(this.uiT(lang, 'grid.hourlyHeader'));
     for (let h = slotStartHour; h <= slotEndHour; h++) {
       const segStart = atLocalHour(localDay, h, 0, timeZone);
       const segEnd = atLocalHour(localDay, h + 1, 0, timeZone);
       const hh = `${String(h).padStart(2, '0')}:00`;
       if (params.dayOffset === 0 && segStart <= now) {
-        lines.push(`⏱ ${hh} — вже пройшло`);
+        lines.push(this.uiT(lang, 'grid.hourPast', { hour: hh }));
         continue;
       }
       const occ = hourSegmentOccupancy(segStart, segEnd, bookings);
       if (occ === 'free') {
-        lines.push(`🟢 ${hh} — вільно`);
+        lines.push(this.uiT(lang, 'grid.hourFree', { hour: hh }));
       } else if (occ === 'full') {
-        lines.push(`🔴 ${hh} — зайнято`);
+        lines.push(this.uiT(lang, 'grid.hourFull', { hour: hh }));
       } else {
-        lines.push(`🟡 ${hh} — зайнято (частина години)`);
+        lines.push(this.uiT(lang, 'grid.hourPartial', { hour: hh }));
       }
     }
     return lines.join('\n');

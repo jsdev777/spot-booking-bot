@@ -19,7 +19,9 @@
     "changeLanguage": "Change language",
     "languageChanged": "Language updated.",
     "changeLanguagePickGroup": "Pick a community first (use “Switch group”) to change the language for that community.",
-    "changeLanguageFailed": "Could not open the language picker. Please try again."
+    "changeLanguageFailed": "Could not open the language picker. Please try again.",
+    "actionOnlyInGroup": "This action is only available in a group.",
+    "openDmAndStart": "Open a private chat with the bot and tap /start."
   },
   "groupWelcome": {
     "ready": "Welcome!\n\nTap “{chatBot}” to use the menu in a private chat with the bot.",
@@ -28,7 +30,9 @@
   "group": {
     "botAddedIntro": "Hello! All menu actions happen in a private chat with the bot.\n\nAdmin: run /setup in this group (next steps in DM).",
     "startInGroupHint": "The bot menu is available in private messages. Tap “{chatBot}” and open a private chat with me.",
-    "botNeedsAdmin": "For full setup and moderation flows, grant this bot administrator rights in the group."
+    "botNeedsAdmin": "For full setup and moderation flows, grant this bot administrator rights in the group.",
+    "setupAdminOnly": "Only an administrator can configure the venue.",
+    "setupDmOpenFailed": "I could not message you in private. Open a chat with the bot, tap Start, then run /setup in the group again or tap “Settings”."
   },
   "wh": {
     "dayClosed": "Closed",
@@ -71,7 +75,15 @@
     "lookingTapYesNo": "Tap “Yes” or “No”.",
     "askPlayersCount": "How many people are you looking for? Enter a whole number from 1 to 50.",
     "playersCountInvalid": "Enter a whole number from 1 to 50.",
-    "createBookingFailed": "Could not create the booking. Please try again."
+    "createBookingFailed": "Could not create the booking. Please try again.",
+    "groupBroadcastNew": "New booking\n\nVenue: «{resource}»\nWhen: {day} {timeFrom}–{timeTo} ({tz})\nWho: {who}\nSport: {sport}{looking}",
+    "groupBroadcastLooking": "\nLooking for partners: need {n} more.",
+    "groupBroadcastCancelled": "Booking cancelled\n\nVenue: «{resource}»\nWhen: {day} {timeFrom}–{timeTo} ({tz})\nSport: {sport}\nCancelled by: {by}",
+    "cancelDmIntroAdmin": "Booking cancelled by a group admin.",
+    "cancelDmIntroOrganizer": "Booking cancelled by the organizer.",
+    "cancelDmVenue": "Venue: «{resource}»",
+    "cancelDmWhen": "Time: {day} {timeFrom}–{timeTo} ({tz})",
+    "cancelDmSport": "Sport: {sport}"
   },
   "msg": {
     "noSlotsBookingWindow": "Booking is not available right now."
@@ -85,7 +97,24 @@
     "languageSaved": "✅ Language saved. / Мову збережено.",
     "chooseLanguageInDm": "Оберіть мову в приватному повідомленні від бота / Choose language in the bot DM.",
     "rulesSentToDmPing": "Community rules were sent to you in a private message from the bot. Open the chat with the bot (tap Start if needed) and confirm using the button below.",
-    "rulesSaved": "Group rules saved ({lang})."
+    "rulesSaved": "Group rules saved ({lang}).",
+    "acceptConfirmOnlyForMember": "You can confirm the rules only for a group you are currently a member of.",
+    "acceptDoneLine": "✅ Rules accepted.",
+    "welcomeAfterAcceptReady": "✅ Rules accepted. Open the bot in a private chat and tap /start.",
+    "welcomeAfterAcceptNotReady": "✅ Rules accepted. The venue is not set up yet. Admin: run /setup.",
+    "groupRulesNotFound": "Rules for this group were not found.",
+    "sendRulesFailedRetry": "Could not send the rules. Try again or tap “{chatBot}” in the group."
+  },
+  "callbacks": {
+    "wrongUser": "This button is not for you.",
+    "saveLanguageFailed": "Could not save the language.",
+    "notGroupMember": "You are not a member of this group.",
+    "groupOrMemberUnavailable": "The group is unavailable or you are not in it.",
+    "groupNotResolved": "Could not determine the group. Ask to send the rules again.",
+    "rulesAcceptFailed": "Could not confirm: rules are not defined or you are not in the chat member list."
+  },
+  "common": {
+    "emDash": "—"
   },
   "onboarding": {
     "needLanguageRulesDm": "First choose your language and accept the community rules in the bot chat (buttons were sent in DM or in the group).",
@@ -155,13 +184,93 @@
     "persistSetupFailedRetryGroup": "Could not save settings. Run /setup in the group again.",
     "sportKindsTitle": "Choose sports available on this venue (toggle buttons).",
     "sportKindsDone": "Done",
-    "sportKindsNeedOne": "Select at least one sport for this venue."
+    "sportKindsNeedOne": "Select at least one sport for this venue.",
+    "sessionStale": "Your setup session expired. Run /setup in the group again.",
+    "settingsCancelledMain": "Setup cancelled. Main menu:",
+    "bwPickTzOrBack": "Pick a time zone from the list or tap “{back}”.",
+    "bwStep2StartInTz": "Step 2/3: window start time (inclusive), in time zone «{tz}»:",
+    "bwStep1TzWithCurrent": "Step 1/3: time zone for the booking window.\n\nCurrent settings: {current}.\n\nPick a time zone:",
+    "bwPickHourFromList": "Pick a time from the list.",
+    "bwPickHour00to23": "Pick a time from 00:00 to 23:00.",
+    "bwStep3EndWithStart": "Step 3/3: end of the window (end is exclusive): after this time bookings are not allowed. Window starts at: {hour}:00.",
+    "bwInvalidHour": "Invalid time.",
+    "bwEndMustAfterStartWithMidnight": "The end must be after the start. Pick a later time or “{midnight}”.",
+    "bwEndWindowAfterStart": "The window end must be after the start.",
+    "visibilityNoteInactive": " Inactive — not shown in the booking list for regular members.",
+    "visibilityNoteActive": " Active — available for booking to everyone.",
+    "doneAddedVenueActive": "Done: venue «{name}» added (active). You can book in the group.",
+    "doneVenueSaved": "Done: venue «{name}» saved.",
+    "perDayKeyboardHint": "{base}\n\nAt the bottom of the keyboard — “{whPerDay}” or “{whSkip}” (same hours for all days).",
+    "configureVenueFirst": "First configure a venue in “{venues}”.",
+    "bookingWindowWizardIntro": "Group booking hours\n\nCurrent: {current}.\n\nMembers always see the menu, but they can create a new booking only during this interval (local time in the selected time zone).\n\nStep 1/3: time zone for the window:",
+    "limitWizardIntro": "Booking limit\n\nHow many hours one user can book per calendar day for each weekday (per venue). Weekday and date follow the venue time zone where the booking is made; one booking cannot exceed the limit for that day.\n\n{summary}\n\nPick a weekday:",
+    "allBookingsPickDayTitle": "All bookings. Pick a day:",
+    "linkNoCandidates": "No venues available to link. You only see resources from groups where you are an admin and which are not yet added to this group.",
+    "linkPickPrompt": "Pick a venue to link to this group:",
+    "pickNumberOrBackButton": "Pick a number from the list or tap “{back}”.",
+    "pickNumberOrNewResource": "Pick a number from the list or tap “{newResource}”.",
+    "linkFailed": "Could not link the venue. Check permissions and try again.",
+    "linkDone": "Done: venue «{name}» linked to the group.",
+    "newVenueIntro": "New venue.\n\n",
+    "venuesPickIntro": "Pick a venue or add a new one. Time zone, hours, and address are set per venue.",
+    "pickedVenueHeader": "Selected venue «{name}».\n\n",
+    "deleteResourceNoPermission": "Not enough rights to delete the venue.",
+    "adminCancelBookingNoPermission": "Not enough rights to cancel the booking.",
+    "deleteUnlinkedResult": "Venue «{name}» was unlinked from this group. All bookings and limits for it were removed here. Nothing changed in other groups where it is still linked.",
+    "deleteFullRemovedResult": "Venue «{name}» was fully removed (all bookings, links, and working hours).",
+    "pickVenueOrAddAfterChange": "{done}\n\nPick a venue or add a new one.",
+    "deleteNotLinkedOrRemoved": "The venue is no longer linked to this group or was removed.",
+    "deleteFailedTryLater": "Could not delete the venue. Try again later.",
+    "deleteConfirmInstruction": "Tap “{confirm}” or “{back}”.",
+    "deleteConfirmTitle": "Delete venue «{name}»?\n\n",
+    "deleteConfirmBody1": "All bookings for this venue in this group will be removed from the database without separate chat notifications.\n\n",
+    "deleteConfirmBody2": "If the venue is linked to other groups too, it will stay there; only the link and local bookings and limits are removed from your group.\n",
+    "deleteConfirmBody3": "If it exists only in your group, the venue record disappears completely (including the weekday schedule).",
+    "step1NameNewResourceText": "For a new venue, send the name as text (non-empty).",
+    "step1NameFromChatNotForNew": "For a new venue, send your own name as text, not the chat title.",
+    "step1ChatTitleMissing": "Could not read the chat title. Send the name as text.",
+    "step1NameOrKeep": "Send the name as text or tap “{keep}”.",
+    "step1NameRequired": "Send the venue name as text (non-empty).",
+    "step1NameOrChatTitle": "Send the venue name as text or tap “{useChatTitle}”.",
+    "nameTooLong": "Name is too long (maximum 200 characters).",
+    "addressTextOrButton": "Send the address in a text message or tap a button below.",
+    "addressTextOrNoAddress": "Send the address as text or tap “{noAddress}”.",
+    "addressTooLong": "Address is too long (maximum 300 characters).",
+    "step3TzCaption": "{stepLine}: time zone (slots will use this zone)",
+    "rulesPickEditLanguage": "Pick the language to edit rules for:",
+    "rulesPickCreateLanguage": "Pick the language to create or change rules for:",
+    "rulesPickNumberOrBack": "Pick a language number from the list or tap “{back}”.",
+    "rulesEditReplace": "Rules language: {native} ({id}).\n\nCurrent rules:\n\n{rules}\n\nSend new text in one message to replace the rules.",
+    "rulesEditCreate": "Rules language: {native} ({id}).\n\nRules for this language are not set yet.\n\nSend the rules text in one message to create them.",
+    "rulesEmptyBody": "Rules text cannot be empty. Send text in one message or tap “{back}”.",
+    "rulesTooLong": "Rules text is too long (maximum 12000 characters).",
+    "rulesSaveFailed": "Could not save the rules. Please try again.",
+    "allBookingsEmptyToday": "No bookings for today. Pick another day.",
+    "allBookingsEmptyTomorrow": "No bookings for tomorrow. Pick another day.",
+    "allBookingsHeaderToday": "All bookings for today:",
+    "allBookingsHeaderTomorrow": "All bookings for tomorrow:",
+    "allBookingsCanceledPickDay": "Booking cancelled. There are no more active bookings for this day. Pick a day:",
+    "allBookingsCanceledHeaderToday": "Booking cancelled. All bookings for today:",
+    "allBookingsCanceledHeaderTomorrow": "Booking cancelled. All bookings for tomorrow:",
+    "allBookingsNotFoundRefresh": "Record not found or already cancelled. Pick “{today}” or “{tomorrow}” to refresh the list.",
+    "allBookingsPickDayHint": "Pick a day: “{today}” or “{tomorrow}”.",
+    "visibilityCurrentInactive": "inactive (hidden from regular members in booking)",
+    "visibilityCurrentActive": "active",
+    "step6StatusAfterTz": "{stepLine}: venue status.\n\nCurrently in the bot: {current}.\n\nPick a status — next you will set hours per weekday:",
+    "step6StatusWithHours": "{stepLine}: venue status.\n\nCurrently in the bot: {current}.\n\nPick a status — it will be saved together with hours and address:",
+    "step5ClosingHours": "{stepLine}: closing time — all bookings must end before the selected time (opening: {hour}:00)",
+    "step4OpeningHours": "{stepLine}: opening time — earliest allowed booking start",
+    "workingHoursPickRange": "Pick working hours from 00:00 to 22:00.",
+    "endAfterStartPickOther": "End time must be after start time. Pick another time."
   },
   "limit": {
     "unlimited": "No limit"
   },
   "bw": {
-    "endMidnight": "24:00 — end of day"
+    "endMidnight": "24:00 — end of day",
+    "endClockMidnight": "24:00 (midnight)",
+    "summaryLine": "from {start}:00 to {end}, time zone {tz}",
+    "doneLine": "Done: group booking hours are {summary}."
   },
   "sport": {
     "TENNIS": "Tennis",
@@ -218,6 +327,21 @@
   },
   "resource": {
     "inactiveMark": "Inactive"
+  },
+  "grid": {
+    "notFound": "Venue not found.",
+    "dayToday": "Today",
+    "dayTomorrow": "Tomorrow",
+    "dayPlus": "Day +{n}",
+    "header": "{resource} — {day} ({tz}):\n",
+    "bookingsHeader": "Bookings:",
+    "bookingRow": "🔴 {from}–{to} ({sport}) — {name}",
+    "dayClosed": "This day the venue is closed.",
+    "hourlyHeader": "By hour:",
+    "hourPast": "⏱ {hour} — already passed",
+    "hourFree": "🟢 {hour} — free",
+    "hourFull": "🔴 {hour} — taken",
+    "hourPartial": "🟡 {hour} — partially taken"
   },
   "weekdayIso": {
     "1": "Mon",
