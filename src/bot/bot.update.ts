@@ -482,12 +482,7 @@ export class BotUpdate {
     const gid = this.activeGroupByUser.get(userId);
     const lang = await this.langForDmUser(userId, gid ?? null);
     const lbl = this.L(lang);
-    const keys = [
-      lbl.menuBook,
-      lbl.menuList,
-      lbl.menuGrid,
-      lbl.menuFreeSlots,
-    ];
+    const keys = [lbl.menuBook, lbl.menuList, lbl.menuGrid, lbl.menuFreeSlots];
     if (await this.showSwitchGroupInDmMenu(telegram, userId)) {
       keys.push(lbl.menuSwitchGroup);
     }
@@ -499,11 +494,9 @@ export class BotUpdate {
     return Markup.keyboard(kbRowsPaired(keys)).resize().persistent(true);
   }
 
-  /** Group bottom row: English-only keys; `lbl` kept for call-site compatibility only. */
-  private groupEntryReplyMarkupForChatUser(_lbl?: BotLabels) {
-    return Markup.keyboard([
-      [GROUP_REPLY_CHAT_BOT, GROUP_REPLY_FREE_SLOTS],
-    ])
+  /** Group bottom row: English-only keys. */
+  private groupEntryReplyMarkupForChatUser() {
+    return Markup.keyboard([[GROUP_REPLY_CHAT_BOT, GROUP_REPLY_FREE_SLOTS]])
       .resize()
       .persistent(true);
   }
@@ -1008,8 +1001,7 @@ export class BotUpdate {
     const z = formatInTimeZone(item.endTime, item.timeZone, 'HH:mm');
     const sport = this.botT(lbl.lang, `sport.${item.sportKindCode}`);
     const res =
-      item.resourceName.trim() ||
-      this.botT(lbl.lang, 'common.emDash');
+      item.resourceName.trim() || this.botT(lbl.lang, 'common.emDash');
     const tail = this.botT(lbl.lang, 'freeSlot.morePlayers', {
       n: item.playersNeeded,
     });
@@ -1207,7 +1199,10 @@ export class BotUpdate {
               ) {
                 return;
               }
-              this.pendingBookSportResourceByUser.set(ctx.from!.id, selected.id);
+              this.pendingBookSportResourceByUser.set(
+                ctx.from!.id,
+                selected.id,
+              );
               this.setMenuState(ctx, { t: 'book_sport' });
               await ctx.reply(
                 this.botT(this.kb().lang, 'book.pickSport'),
@@ -1909,7 +1904,7 @@ export class BotUpdate {
       const whoRaw = ctx.from?.username?.trim()
         ? ctx.from.username.trim()
         : (ctx.from?.first_name?.trim() ??
-            this.botT(lbl.lang, 'setup.adminPlayerFallback'));
+          this.botT(lbl.lang, 'setup.adminPlayerFallback'));
       const sportLabel = this.bookingSportLabel(flow.sportKindCode);
       const lookingBroadcast =
         players.isLookingForPlayers && players.requiredPlayers > 0
@@ -2235,7 +2230,7 @@ export class BotUpdate {
     const rawWho = ctx.from?.username?.trim()
       ? ctx.from.username.trim()
       : (ctx.from?.first_name?.trim() ??
-          this.botT(lang, 'setup.adminPlayerFallback'));
+        this.botT(lang, 'setup.adminPlayerFallback'));
     const cancelledBy = rawWho.replace(/^@+/, '');
     const sportLabel = this.botT(lang, `sport.${notify.sportKindCode}`);
     const cancelBroadcast = this.botT(lang, 'book.groupBroadcastCancelled', {
@@ -2296,10 +2291,7 @@ export class BotUpdate {
   }
 
   private escapeHtml(s: string): string {
-    return s
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   private telegramUserHtmlLink(telegramUserId: number, label: string): string {
@@ -2364,9 +2356,7 @@ export class BotUpdate {
       resource: this.escapeHtml(dm.resourceName),
       address: this.escapeHtml(addrRaw),
       when: this.escapeHtml(when),
-      sport: this.escapeHtml(
-        this.botT(lang, `sport.${dm.sportKindCode}`),
-      ),
+      sport: this.escapeHtml(this.botT(lang, `sport.${dm.sportKindCode}`)),
     });
   }
 
@@ -2483,9 +2473,7 @@ export class BotUpdate {
       resource: this.escapeHtml(dm.resourceName),
       address: this.escapeHtml(addrRaw),
       when: this.escapeHtml(when),
-      sport: this.escapeHtml(
-        this.botT(lang, `sport.${dm.sportKindCode}`),
-      ),
+      sport: this.escapeHtml(this.botT(lang, `sport.${dm.sportKindCode}`)),
     });
     try {
       await params.ctx.telegram.sendMessage(organizer.telegramUserId, text, {
@@ -3492,8 +3480,7 @@ export class BotUpdate {
     const z = formatInTimeZone(item.endTime, item.timeZone, 'HH:mm');
     const sport = this.botT(lbl.lang, `sport.${item.sportKindCode}`);
     const res =
-      item.resourceName.trim() ||
-      this.botT(lbl.lang, 'common.emDash');
+      item.resourceName.trim() || this.botT(lbl.lang, 'common.emDash');
     const rawWho = item.userName.trim();
     const fallbackWho = this.botT(lbl.lang, 'setup.adminPlayerFallback');
     const who = rawWho ? rawWho.replace(/^@+/, '@') : fallbackWho;
@@ -4357,7 +4344,9 @@ export class BotUpdate {
             draft.setupResourceAddressLabel,
             this.setupStepMax(draft),
           ),
-          this.setupAddressReplyMarkup(!!draft.setupResourceAddressLabel?.trim()),
+          this.setupAddressReplyMarkup(
+            !!draft.setupResourceAddressLabel?.trim(),
+          ),
         );
         return;
       }
@@ -5105,7 +5094,9 @@ export class BotUpdate {
         this.setupDrafts.set(sk, draft);
         await this.sendSetupDm(
           ctx,
-          this.botT(this.kb().lang, 'setup.pickedVenueHeader', { name: r.name }) +
+          this.botT(this.kb().lang, 'setup.pickedVenueHeader', {
+            name: r.name,
+          }) +
             this.setupStep1PromptText(chatTitle, {
               existingResourceName: r.name,
               multiFlow: draft.multiResourceFlow,
@@ -5467,10 +5458,7 @@ export class BotUpdate {
           this.setupDrafts.set(sk, draft);
           const cur =
             draft.setupResourceVisibility === ResourceVisibility.INACTIVE
-              ? this.botT(
-                  this.kb().lang,
-                  'setup.visibilityCurrentInactive',
-                )
+              ? this.botT(this.kb().lang, 'setup.visibilityCurrentInactive')
               : this.botT(this.kb().lang, 'setup.visibilityCurrentActive');
           await this.sendSetupDm(
             ctx,
@@ -5601,10 +5589,7 @@ export class BotUpdate {
           this.setupDrafts.set(sk, draft);
           const cur =
             draft.setupResourceVisibility === ResourceVisibility.INACTIVE
-              ? this.botT(
-                  this.kb().lang,
-                  'setup.visibilityCurrentInactive',
-                )
+              ? this.botT(this.kb().lang, 'setup.visibilityCurrentInactive')
               : this.botT(this.kb().lang, 'setup.visibilityCurrentActive');
           await this.sendSetupDm(
             ctx,
@@ -5828,7 +5813,10 @@ export class BotUpdate {
     if (gid == null) {
       return;
     }
-    await ctx.reply(this.botT(lang, 'menu.title'), await this.mainMenuReplyMarkup(ctx));
+    await ctx.reply(
+      this.botT(lang, 'menu.title'),
+      await this.mainMenuReplyMarkup(ctx),
+    );
   }
 
   private async sendLanguagePickerMessages(
@@ -6505,9 +6493,12 @@ export class BotUpdate {
       lastName: ctx.from.last_name,
     });
     if (!saved.ok) {
-      await ctx.answerCbQuery(this.botT(cbLang, 'callbacks.saveLanguageFailed'), {
-        show_alert: true,
-      });
+      await ctx.answerCbQuery(
+        this.botT(cbLang, 'callbacks.saveLanguageFailed'),
+        {
+          show_alert: true,
+        },
+      );
       return;
     }
     await ctx.answerCbQuery();
@@ -6548,9 +6539,12 @@ export class BotUpdate {
         ctx.from.id,
       );
       if (!TelegramMembersService.isStatusInChat(member.status)) {
-        await ctx.answerCbQuery(this.botT(pickLang, 'callbacks.notGroupMember'), {
-          show_alert: true,
-        });
+        await ctx.answerCbQuery(
+          this.botT(pickLang, 'callbacks.notGroupMember'),
+          {
+            show_alert: true,
+          },
+        );
         return;
       }
     } catch {
@@ -6714,9 +6708,12 @@ export class BotUpdate {
         ctx.from.id,
       );
       if (!TelegramMembersService.isStatusInChat(member.status)) {
-        await ctx.answerCbQuery(this.botT(rulesCbLang, 'callbacks.notGroupMember'), {
-          show_alert: true,
-        });
+        await ctx.answerCbQuery(
+          this.botT(rulesCbLang, 'callbacks.notGroupMember'),
+          {
+            show_alert: true,
+          },
+        );
         await ctx.reply(
           this.botT(rulesCbLang, 'rules.acceptConfirmOnlyForMember'),
         );
@@ -6741,9 +6738,7 @@ export class BotUpdate {
       return;
     }
     try {
-      await ctx.editMessageText(
-        this.botT(rulesCbLang, 'rules.acceptDoneLine'),
-      );
+      await ctx.editMessageText(this.botT(rulesCbLang, 'rules.acceptDoneLine'));
     } catch {
       /* не текст / нет прав */
     }
