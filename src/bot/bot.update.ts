@@ -77,6 +77,25 @@ const START_RULES_PREFIX = 'rules_';
 const TELEGRAM_SEND_BATCH_SIZE = 6;
 const TELEGRAM_MAX_429_RETRIES = 2;
 
+/**
+ * Group reply keyboard: fixed English for everyone (not tied to membership locale).
+ * Handlers also accept legacy Ukrainian labels from older keyboards.
+ */
+const GROUP_REPLY_CHAT_BOT = 'Bot chat';
+const GROUP_REPLY_FREE_SLOTS = 'Player search';
+const GROUP_REPLY_CHAT_BOT_LEGACY = 'Чат Бот';
+const GROUP_REPLY_FREE_SLOTS_LEGACY = 'Пошук гравців';
+
+function isGroupReplyChatBotPress(text: string): boolean {
+  return text === GROUP_REPLY_CHAT_BOT || text === GROUP_REPLY_CHAT_BOT_LEGACY;
+}
+
+function isGroupReplyFreeSlotsPress(text: string): boolean {
+  return (
+    text === GROUP_REPLY_FREE_SLOTS || text === GROUP_REPLY_FREE_SLOTS_LEGACY
+  );
+}
+
 /** Two buttons per row — with `resize` they use roughly half the screen width. */
 function kbRowsPaired(buttons: string[]): string[][] {
   const rows: string[][] = [];
@@ -480,10 +499,13 @@ export class BotUpdate {
     return Markup.keyboard(kbRowsPaired(keys)).resize().persistent(true);
   }
 
-  private groupEntryReplyMarkupForChatUser(lbl?: BotLabels) {
-    const l = lbl ?? this.kb();
-    const rows: string[][] = [[l.menuChatBot, l.menuFreeSlots]];
-    return Markup.keyboard(rows).resize().persistent(true);
+  /** Group bottom row: English-only keys; `lbl` kept for call-site compatibility only. */
+  private groupEntryReplyMarkupForChatUser(_lbl?: BotLabels) {
+    return Markup.keyboard([
+      [GROUP_REPLY_CHAT_BOT, GROUP_REPLY_FREE_SLOTS],
+    ])
+      .resize()
+      .persistent(true);
   }
 
   private async mainMenuReplyMarkup(ctx: Context) {
@@ -493,8 +515,7 @@ export class BotUpdate {
     if (isGroupChat(ctx) && ctx.from) {
       return this.groupEntryReplyMarkupForChatUser();
     }
-    const lbl = this.L(await this.langForCtx(ctx));
-    return Markup.keyboard([[lbl.menuChatBot]])
+    return Markup.keyboard([[GROUP_REPLY_CHAT_BOT]])
       .resize()
       .persistent(true);
   }
@@ -3079,13 +3100,13 @@ export class BotUpdate {
         return;
       }
 
-      if (isGroupChat(ctx) && text === this.kb().menuChatBot) {
+      if (isGroupChat(ctx) && isGroupReplyChatBotPress(text)) {
         await this.openDmMenuForGroupFromGroupContext(ctx);
         await this.tryDeleteTriggerTextMessage(ctx);
         return;
       }
 
-      if (isGroupChat(ctx) && text === this.kb().menuFreeSlots) {
+      if (isGroupChat(ctx) && isGroupReplyFreeSlotsPress(text)) {
         await this.openDmFreeSlotsForGroupFromGroupContext(ctx);
         await this.tryDeleteTriggerTextMessage(ctx);
         return;
@@ -6072,7 +6093,7 @@ export class BotUpdate {
         }
         const text = ready
           ? this.botT(memberLbl.lang, 'groupWelcome.ready', {
-              chatBot: memberLbl.menuChatBot,
+              chatBot: GROUP_REPLY_CHAT_BOT,
             })
           : this.botT(memberLbl.lang, 'groupWelcome.notReady');
         try {
@@ -6227,7 +6248,7 @@ export class BotUpdate {
             const lbl = this.L(localeId);
             await ctx.reply(
               this.botT(lbl.lang, 'rules.sendRulesFailedRetry', {
-                chatBot: lbl.menuChatBot,
+                chatBot: GROUP_REPLY_CHAT_BOT,
               }),
             );
           }
@@ -6274,7 +6295,7 @@ export class BotUpdate {
     );
     await ctx.reply(
       this.botT(startLbl.lang, 'group.startInGroupHint', {
-        chatBot: startLbl.menuChatBot,
+        chatBot: GROUP_REPLY_CHAT_BOT,
       }),
       this.groupEntryReplyMarkupForChatUser(startLbl),
     );
@@ -6614,7 +6635,7 @@ export class BotUpdate {
         const lbl = this.kb();
         const welcomeText = ready
           ? this.botT(lbl.lang, 'groupWelcome.ready', {
-              chatBot: lbl.menuChatBot,
+              chatBot: GROUP_REPLY_CHAT_BOT,
             })
           : this.botT(lbl.lang, 'groupWelcome.notReady');
         try {
