@@ -468,8 +468,10 @@ export class BotUpdate {
       lbl.menuList,
       lbl.menuGrid,
       lbl.menuFreeSlots,
-      lbl.menuSwitchGroup,
     ];
+    if (await this.showSwitchGroupInDmMenu(telegram, userId)) {
+      keys.push(lbl.menuSwitchGroup);
+    }
     if (gid != null && (await isUserAdminOfGroupChat(telegram, gid, userId))) {
       keys.push(lbl.menuSetup);
     }
@@ -535,6 +537,20 @@ export class BotUpdate {
       }
     }
     return [...map.values()];
+  }
+
+  /** Whether the DM main menu should offer “Switch group” (more than one selectable group). */
+  private async showSwitchGroupInDmMenu(
+    telegram: Context['telegram'],
+    userId: number,
+  ): Promise<boolean> {
+    const byMembership =
+      await this.telegramMembers.listActiveUserCommunities(userId);
+    if (byMembership.length > 1) {
+      return true;
+    }
+    const groups = await this.listAvailableGroupsForUser(telegram, userId);
+    return groups.length > 1;
   }
 
   private groupPickerReplyMarkup(
@@ -918,20 +934,27 @@ export class BotUpdate {
       .persistent(true);
   }
 
-  /** Текст кнопки в «Мои бронирования» (лимит Telegram — 64 символа). */
-  private buildListBookingButtonLabel(item: {
-    startTime: Date;
-    endTime: Date;
-    timeZone: string;
-    resourceName: string;
-  }): string {
+  /**
+   * Текст рядка «Мої бронювання»: дата, час, майданчик.
+   * `includeCancelSuffix` — лише для reply-кнопок (ліміт 64 символи); у повідомленні чату — false.
+   */
+  private buildListBookingButtonLabel(
+    item: {
+      startTime: Date;
+      endTime: Date;
+      timeZone: string;
+      resourceName: string;
+    },
+    opts?: { includeCancelSuffix?: boolean },
+  ): string {
     const lbl = this.kb();
     const r = item;
     const day = formatInTimeZone(r.startTime, r.timeZone, 'dd.MM.yyyy');
     const a = formatInTimeZone(r.startTime, r.timeZone, 'HH:mm');
     const z = formatInTimeZone(r.endTime, r.timeZone, 'HH:mm');
     const timePart = `${day} ${a}–${z}`;
-    const cancelSuffix = lbl.listCancelSuffix;
+    const includeCancel = opts?.includeCancelSuffix !== false;
+    const cancelSuffix = includeCancel ? lbl.listCancelSuffix : '';
     const sep = ' · ';
     let res = r.resourceName.trim() || '—';
     let label = `${timePart}${sep}${res}${cancelSuffix}`;
@@ -1459,8 +1482,16 @@ export class BotUpdate {
         bookingIds: rows.map((r) => r.id),
         rowLabels,
       });
+      const intro = this.botT(this.kb().lang, 'book.myBookingsIntro');
+      const listText = listItems
+        .map((item) =>
+          this.buildListBookingButtonLabel(item, {
+            includeCancelSuffix: false,
+          }),
+        )
+        .join('\n');
       await ctx.reply(
-        this.botT(this.kb().lang, 'book.myBookingsIntro'),
+        `${intro}\n\n${listText}`,
         this.listBookingsReplyMarkup(listItems),
       );
       return;
@@ -3156,8 +3187,14 @@ export class BotUpdate {
       if (text === this.kb().menuMain) {
         if (isGroupChat(ctx)) {
           this.clearSetupBridgeForGroup(from.id, String(ctx.chat!.id));
+          this.setupDrafts.delete(this.setupSk(ctx.chat!.id, from.id));
+        } else {
+          const bridgedGid = this.setupBridgeGroupByUser.get(from.id);
+          if (bridgedGid !== undefined) {
+            this.setupDrafts.delete(this.setupSk(BigInt(bridgedGid), from.id));
+            this.setupBridgeGroupByUser.delete(from.id);
+          }
         }
-        this.setupDrafts.delete(this.setupSk(ctx.chat!.id, from.id));
         this.resetMenuState(ctx);
         await ctx.reply(
           this.botT(this.kb().lang, 'menu.title'),
@@ -3414,14 +3451,20 @@ export class BotUpdate {
       .persistent(true);
   }
 
-  private buildAdminAllBookingButtonLabel(item: {
-    startTime: Date;
-    endTime: Date;
-    timeZone: string;
-    resourceName: string;
-    sportKindCode: SportKindCode;
-    userName: string;
-  }): string {
+  /**
+   * Підпис кнопки «Усі бронювання» (64 символи). У тексті повідомлення — `includeCancelSuffix: false`.
+   */
+  private buildAdminAllBookingButtonLabel(
+    item: {
+      startTime: Date;
+      endTime: Date;
+      timeZone: string;
+      resourceName: string;
+      sportKindCode: SportKindCode;
+      userName: string;
+    },
+    opts?: { includeCancelSuffix?: boolean },
+  ): string {
     const lbl = this.kb();
     const day = formatInTimeZone(item.startTime, item.timeZone, 'dd.MM');
     const a = formatInTimeZone(item.startTime, item.timeZone, 'HH:mm');
@@ -3430,10 +3473,13 @@ export class BotUpdate {
     const res =
       item.resourceName.trim() ||
       this.botT(lbl.lang, 'common.emDash');
-    const who =
-      item.userName.trim().replace(/^@+/, '') ||
-      this.botT(lbl.lang, 'setup.adminPlayerFallback');
-    const cancelSuffix = this.botT(lbl.lang, 'setup.adminCancelSuffix');
+    const rawWho = item.userName.trim();
+    const fallbackWho = this.botT(lbl.lang, 'setup.adminPlayerFallback');
+    const who = rawWho ? rawWho.replace(/^@+/, '@') : fallbackWho;
+    const includeCancel = opts?.includeCancelSuffix !== false;
+    const cancelSuffix = includeCancel
+      ? this.botT(lbl.lang, 'setup.adminCancelSuffix')
+      : '';
     const baseLabel = `${day} ${a}–${z} · ${res} · ${sport} · ${who}`;
     let label = `${baseLabel}${cancelSuffix}`;
     if (label.length > 64) {
@@ -3920,7 +3966,7 @@ export class BotUpdate {
     );
     const rows = kbRowsPaired(labels);
     rows.push([this.kb().setupNewResource, this.kb().menuBack]);
-    rows.push([this.kb().setupCancel]);
+    rows.push([this.kb().menuMain, this.kb().setupCancel]);
     return Markup.keyboard(rows).resize().persistent(true);
   }
 
@@ -4227,6 +4273,24 @@ export class BotUpdate {
     }
   }
 
+  /** Leave /setup DM session and show the usual main menu (reply keyboard). */
+  private async leaveSetupSessionToMainMenu(
+    ctx: Context,
+    targetGroupChatId: bigint,
+  ): Promise<void> {
+    if (!ctx.from) {
+      return;
+    }
+    const sk = this.setupSk(targetGroupChatId, ctx.from.id);
+    this.setupDrafts.delete(sk);
+    this.setupBridgeGroupByUser.delete(ctx.from.id);
+    this.resetMenuState(ctx);
+    await ctx.reply(
+      this.botT(this.kb().lang, 'menu.title'),
+      await this.mainMenuReplyMarkup(ctx),
+    );
+  }
+
   private async handleSetupText(
     ctx: Context,
     text: string,
@@ -4274,6 +4338,10 @@ export class BotUpdate {
           ),
           this.setupAddressReplyMarkup(!!draft.setupResourceAddressLabel?.trim()),
         );
+        return;
+      }
+      if (text === this.kb().menuMain) {
+        await this.leaveSetupSessionToMainMenu(ctx, targetGroupChatId);
         return;
       }
       if (text === doneLabel) {
@@ -4519,10 +4587,9 @@ export class BotUpdate {
               timeZone: r.resource.timeZone,
               resourceName: r.resource.name,
               sportKindCode: r.sportKindCode,
-              userName: (
+              userName:
                 r.userName?.trim() ||
-                this.botT(this.kb().lang, 'setup.adminPlayerFallback')
-              ).replace(/^@+/, ''),
+                this.botT(this.kb().lang, 'setup.adminPlayerFallback'),
             }));
             const rowLabels = items.map((it) =>
               this.buildAdminAllBookingButtonLabel(it),
@@ -4533,11 +4600,20 @@ export class BotUpdate {
             draft.allBookingsRowLabelsDraft = rowLabels;
             draft.allBookingsBookingIdsDraft = bookingIds;
             this.setupDrafts.set(sk, draft);
-            await this.sendSetupDm(
-              ctx,
+            const header =
               dayOffset === 0
                 ? this.botT(this.kb().lang, 'setup.allBookingsHeaderToday')
-                : this.botT(this.kb().lang, 'setup.allBookingsHeaderTomorrow'),
+                : this.botT(this.kb().lang, 'setup.allBookingsHeaderTomorrow');
+            const listText = items
+              .map((it) =>
+                this.buildAdminAllBookingButtonLabel(it, {
+                  includeCancelSuffix: false,
+                }),
+              )
+              .join('\n');
+            await this.sendSetupDm(
+              ctx,
+              `${header}\n\n${listText}`,
               this.adminAllBookingsReplyMarkup(rowLabels),
             );
             return;
@@ -4598,10 +4674,9 @@ export class BotUpdate {
                     timeZone: r.resource.timeZone,
                     resourceName: r.resource.name,
                     sportKindCode: r.sportKindCode,
-                    userName: (
+                    userName:
                       r.userName?.trim() ||
-                      this.botT(this.kb().lang, 'setup.adminPlayerFallback')
-                    ).replace(/^@+/, ''),
+                      this.botT(this.kb().lang, 'setup.adminPlayerFallback'),
                   }));
                   const rowLabelsAfter = itemsAfter.map((it) =>
                     this.buildAdminAllBookingButtonLabel(it),
@@ -4611,8 +4686,7 @@ export class BotUpdate {
                   draft.allBookingsRowLabelsDraft = rowLabelsAfter;
                   draft.allBookingsBookingIdsDraft = rowsAfter.map((r) => r.id);
                   this.setupDrafts.set(sk, draft);
-                  await this.sendSetupDm(
-                    ctx,
+                  const headerAfter =
                     dayKeep === 0
                       ? this.botT(
                           this.kb().lang,
@@ -4621,7 +4695,17 @@ export class BotUpdate {
                       : this.botT(
                           this.kb().lang,
                           'setup.allBookingsCanceledHeaderTomorrow',
-                        ),
+                        );
+                  const listTextAfter = itemsAfter
+                    .map((it) =>
+                      this.buildAdminAllBookingButtonLabel(it, {
+                        includeCancelSuffix: false,
+                      }),
+                    )
+                    .join('\n');
+                  await this.sendSetupDm(
+                    ctx,
+                    `${headerAfter}\n\n${listTextAfter}`,
                     this.adminAllBookingsReplyMarkup(rowLabelsAfter),
                   );
                   return;
@@ -4837,7 +4921,16 @@ export class BotUpdate {
           return;
         }
 
+        if (venuesSub === 'list' && text === this.kb().menuMain) {
+          await this.leaveSetupSessionToMainMenu(ctx, targetGroupChatId);
+          return;
+        }
+
         if (venuesSub === 'link_pick') {
+          if (text === this.kb().menuMain) {
+            await this.leaveSetupSessionToMainMenu(ctx, targetGroupChatId);
+            return;
+          }
           if (text === this.kb().menuBack) {
             draft.venuesSubstep = 'hub';
             this.setupDrafts.set(sk, draft);
@@ -5002,6 +5095,10 @@ export class BotUpdate {
         return;
       }
       case 1: {
+        if (text === this.kb().menuMain) {
+          await this.leaveSetupSessionToMainMenu(ctx, targetGroupChatId);
+          return;
+        }
         if (draft.setupResourceDeleteConfirm) {
           if (text === this.kb().menuBack) {
             delete draft.setupResourceDeleteConfirm;
@@ -5232,6 +5329,10 @@ export class BotUpdate {
         return;
       }
       case 2: {
+        if (text === this.kb().menuMain) {
+          await this.leaveSetupSessionToMainMenu(ctx, targetGroupChatId);
+          return;
+        }
         if (text === this.kb().menuBack) {
           draft.step = 1;
           delete draft.name;
@@ -5307,6 +5408,10 @@ export class BotUpdate {
         return;
       }
       case 3: {
+        if (text === this.kb().menuMain) {
+          await this.leaveSetupSessionToMainMenu(ctx, targetGroupChatId);
+          return;
+        }
         if (text === this.kb().menuBack) {
           draft.step = 2;
           delete draft.timeZone;
@@ -5367,6 +5472,10 @@ export class BotUpdate {
         return;
       }
       case 4: {
+        if (text === this.kb().menuMain) {
+          await this.leaveSetupSessionToMainMenu(ctx, targetGroupChatId);
+          return;
+        }
         if (text === this.kb().menuBack) {
           draft.step = 3;
           delete draft.timeZone;
@@ -5409,6 +5518,10 @@ export class BotUpdate {
         return;
       }
       case 5: {
+        if (text === this.kb().menuMain) {
+          await this.leaveSetupSessionToMainMenu(ctx, targetGroupChatId);
+          return;
+        }
         if (text === this.kb().menuBack) {
           draft.step = 4;
           delete draft.slotStart;
@@ -5491,6 +5604,10 @@ export class BotUpdate {
         return;
       }
       case 6: {
+        if (text === this.kb().menuMain) {
+          await this.leaveSetupSessionToMainMenu(ctx, targetGroupChatId);
+          return;
+        }
         if (draft.postTzVisibilityOnly) {
           if (text === this.kb().menuBack) {
             delete draft.postTzVisibilityOnly;
