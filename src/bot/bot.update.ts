@@ -6085,7 +6085,7 @@ export class BotUpdate {
             })
           : this.botT(memberLbl.lang, 'groupWelcome.notReady');
         try {
-          const kb = this.groupEntryReplyMarkupForChatUser(memberLbl);
+          const kb = this.groupEntryReplyMarkupForChatUser();
           await ctx.telegram.sendMessage(chat.id, text, kb);
         } catch (e) {
           this.logger.warn(
@@ -6161,7 +6161,7 @@ export class BotUpdate {
       }
       await ctx.reply(
         this.botT(actorLbl.lang, 'group.botAddedIntro'),
-        this.groupEntryReplyMarkupForChatUser(actorLbl),
+        this.groupEntryReplyMarkupForChatUser(),
       );
       return;
     }
@@ -6171,7 +6171,7 @@ export class BotUpdate {
         : this.L(UI_LANGUAGE_PROMPT_NEUTRAL_LANG);
     await ctx.reply(
       this.botT(needsAdminLbl.lang, 'group.botNeedsAdmin'),
-      this.groupEntryReplyMarkupForChatUser(needsAdminLbl),
+      this.groupEntryReplyMarkupForChatUser(),
     );
   }
 
@@ -6285,7 +6285,7 @@ export class BotUpdate {
       this.botT(startLbl.lang, 'group.startInGroupHint', {
         chatBot: GROUP_REPLY_CHAT_BOT,
       }),
-      this.groupEntryReplyMarkupForChatUser(startLbl),
+      this.groupEntryReplyMarkupForChatUser(),
     );
   }
 
@@ -6633,7 +6633,7 @@ export class BotUpdate {
             })
           : this.botT(lbl.lang, 'groupWelcome.notReady');
         try {
-          const kb = this.groupEntryReplyMarkupForChatUser(lbl);
+          const kb = this.groupEntryReplyMarkupForChatUser();
           await ctx.telegram.sendMessage(Number(groupChatId), welcomeText, kb);
         } catch (e) {
           this.logger.warn(
