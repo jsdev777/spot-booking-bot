@@ -1026,10 +1026,10 @@ export class BookingService {
     if (bookings.length > 0) {
       lines.push(this.uiT(lang, 'grid.bookingsHeader'));
       for (const b of bookings) {
-        const raw = b.userName?.trim();
-        const name =
-          (raw ? raw.replace(/^@+/, '').trim() : '') ||
-          this.uiT(lang, 'setup.adminPlayerFallback');
+        const raw = b.userName?.trim() ?? '';
+        const name = raw
+          ? raw.replace(/^@+/, '@')
+          : this.uiT(lang, 'setup.adminPlayerFallback');
         const sport = this.uiT(lang, `sport.${b.sportKindCode}`);
         const a = formatInTimeZone(b.startTime, timeZone, 'HH:mm');
         const z = formatInTimeZone(b.endTime, timeZone, 'HH:mm');
