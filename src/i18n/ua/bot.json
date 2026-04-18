@@ -301,7 +301,7 @@
     "peopleThemMany": "З їхнього боку враховано осіб: {n}.",
     "organizerUnknown": "Організатор",
     "organizerLine": "Організатор: {link}",
-    "organizerJoinNotify": "Хтось приєднався до вашого броню через «Вільні місця».\n\nУчасник: {participantLink}\n{peopleThemLine}\n\nДе: «{resource}»\nАдреса: {address}\nКоли: {when}\nСпорт: {sport}\n\nЗбережіть цей діалог — сюди також можуть надходити нагадування.",
+    "organizerJoinNotify": "Хтось приєднався до вашого броню через «Пошук гравців».\n\nУчасник: {participantLink}\n{peopleThemLine}\n\nДе: «{resource}»\nАдреса: {address}\nКоли: {when}\nСпорт: {sport}\n\nЗбережіть цей діалог — сюди також можуть надходити нагадування.",
     "addressUnknown": "не вказано — дізнайтеся в організатора у групі",
     "full": "{organizerLine}\n\nВи в списку учасників гри.\n\n{peopleLine}\n\nДе: «{resource}»\nАдреса: {address}\nКоли: {when}\nСпорт: {sport}\n\nЗбережіть цей діалог — сюди також можуть надходити нагадування."
   },

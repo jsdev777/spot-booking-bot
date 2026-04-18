@@ -15,7 +15,7 @@ export class PrismaService extends PrismaClient implements OnModuleDestroy {
       configService.get<string>('PG_POOL_CONNECTION_TIMEOUT_MS') ?? 5000,
     );
     const poolIdleTimeoutMs = Number(
-      configService.get<string>('PG_POOL_IDLE_TIMEOUT_MS') ?? 10000,
+      configService.get<string>('PG_POOL_IDLE_TIMEOUT_MS') ?? 120000,
     );
     const pool = new Pool({
       connectionString,
@@ -25,7 +25,7 @@ export class PrismaService extends PrismaClient implements OnModuleDestroy {
         : 5000,
       idleTimeoutMillis: Number.isFinite(poolIdleTimeoutMs)
         ? poolIdleTimeoutMs
-        : 10000,
+        : 120000,
     });
     super({ adapter: new PrismaPg(pool) });
     this.pool = pool;

@@ -832,7 +832,27 @@ export class BotUpdate {
     text: string,
     delayMs = 5000,
   ) {
-    const sent = await ctx.reply(text);
+    let sent: Awaited<ReturnType<Context['reply']>>;
+    try {
+      sent = await ctx.reply(text);
+    } catch (e) {
+      const err = e as {
+        response?: { error_code?: number; description?: string };
+      };
+      const code = err.response?.error_code;
+      const description = (err.response?.description ?? '').toLowerCase();
+      const expectedForbidden =
+        code === 403 &&
+        (description.includes('bot was kicked') ||
+          description.includes('bot is not a member'));
+      if (expectedForbidden) {
+        this.logger.warn(
+          `replyTransientInGroup skipped (chat unavailable): ${err.response?.description ?? 'Forbidden'}`,
+        );
+        return;
+      }
+      throw e;
+    }
     if (!isGroupChat(ctx) || !ctx.chat?.id) {
       return;
     }
@@ -3351,7 +3371,26 @@ export class BotUpdate {
         return;
       }
 
-      await this.handleMainMenuButtons(ctx, text);
+      const isMainMenuButton =
+        text === this.kb().menuBook ||
+        text === this.kb().menuList ||
+        text === this.kb().menuGrid ||
+        text === this.kb().menuFreeSlots ||
+        text === this.kb().menuSwitchGroup ||
+        text === this.kb().menuChatBot ||
+        text === this.kb().menuChangeLanguage ||
+        text === this.kb().menuSetup;
+      if (isMainMenuButton) {
+        await this.handleMainMenuButtons(ctx, text);
+        return;
+      }
+      if (!isGroupChat(ctx)) {
+        this.resetMenuState(ctx);
+        await ctx.reply(
+          this.botT(this.kb().lang, 'menu.title'),
+          await this.mainMenuReplyMarkup(ctx),
+        );
+      }
     });
   }
 
@@ -6485,6 +6524,7 @@ export class BotUpdate {
       });
       return;
     }
+    await ctx.answerCbQuery();
     const saved = await this.telegramMembers.setUserDefaultLanguage({
       telegramUserId: ctx.from.id,
       languageId,
@@ -6493,15 +6533,9 @@ export class BotUpdate {
       lastName: ctx.from.last_name,
     });
     if (!saved.ok) {
-      await ctx.answerCbQuery(
-        this.botT(cbLang, 'callbacks.saveLanguageFailed'),
-        {
-          show_alert: true,
-        },
-      );
+      await ctx.reply(this.botT(cbLang, 'callbacks.saveLanguageFailed'));
       return;
     }
-    await ctx.answerCbQuery();
     try {
       await ctx.editMessageText(
         this.botT(resolveUiLang(languageId), 'rules.languageSaved'),
@@ -6556,6 +6590,7 @@ export class BotUpdate {
       );
       return;
     }
+    await ctx.answerCbQuery();
     const previousLang = await this.telegramMembers.getMembershipLanguageId({
       telegramChatId: groupChatId,
       telegramUserId: ctx.from.id,
@@ -6566,15 +6601,9 @@ export class BotUpdate {
       languageId,
     });
     if (!saved.ok) {
-      await ctx.answerCbQuery(
-        this.botT(pickLang, 'callbacks.saveLanguageFailed'),
-        {
-          show_alert: true,
-        },
-      );
+      await ctx.reply(this.botT(pickLang, 'callbacks.saveLanguageFailed'));
       return;
     }
-    await ctx.answerCbQuery();
     try {
       await ctx.editMessageText(
         this.botT(resolveUiLang(languageId), 'rules.languageSaved'),
