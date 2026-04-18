@@ -572,10 +572,7 @@ export class BookingService {
       }
     }
 
-    const userName = this.displayBookerName(
-      params.from,
-      params.displayLocale,
-    );
+    const userName = this.displayBookerName(params.from, params.displayLocale);
     const looking = params.isLookingForPlayers === true;
     const requiredPlayers = looking ? (params.requiredPlayers ?? 0) : 0;
     if (looking && (requiredPlayers < 1 || requiredPlayers > 50)) {

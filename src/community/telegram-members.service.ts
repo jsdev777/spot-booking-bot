@@ -530,9 +530,7 @@ export class TelegramMembersService {
     });
 
     const pendingLanguageSelection = Boolean(
-      m?.isActive &&
-        m.languageId == null &&
-        userRow.defaultLanguageId == null,
+      m?.isActive && m.languageId == null && userRow.defaultLanguageId == null,
     );
     const effectiveLang = m?.languageId ?? userRow.defaultLanguageId ?? null;
     const resolvedRulesText =
