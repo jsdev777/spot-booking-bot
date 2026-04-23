@@ -13,6 +13,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ResourceService } from '../community/resource.service';
 import { MetricsService } from '../metrics/metrics.service';
 import {
+  RecurringBookingOccurrence,
+  RecurringBookingService,
+} from './recurring-booking.service';
+import {
   BookingNotFoundError,
   BookingWindowClosedError,
   SlotInPastError,
@@ -59,6 +63,7 @@ type LoadedResourceDayBookings = {
   windowStartUtc: Date;
   maxEndUtc: Date;
   bookings: DayBookingWithSport[];
+  recurringOccurrences: RecurringBookingOccurrence[];
 };
 
 /** Local start time of the reservation (in 30-minute increments: :00 and :30). */
@@ -136,9 +141,24 @@ export class BookingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly resources: ResourceService,
+    private readonly recurringBookings: RecurringBookingService,
     private readonly metrics: MetricsService,
     private readonly i18n: I18nService,
   ) {}
+
+  private hasClashWithOccupiedIntervals(
+    start: Date,
+    end: Date,
+    bookings: Pick<DayBookingWithSport, 'startTime' | 'endTime'>[],
+    recurringOccurrences: Pick<RecurringBookingOccurrence, 'startTime' | 'endTime'>[],
+  ): boolean {
+    return (
+      bookings.some((b) => intervalsOverlap(start, end, b.startTime, b.endTime)) ||
+      recurringOccurrences.some((r) =>
+        intervalsOverlap(start, end, r.startTime, r.endTime),
+      )
+    );
+  }
 
   private uiT(
     lang: string,
@@ -309,6 +329,14 @@ export class BookingService {
       include: { sportKind: true },
       orderBy: { startTime: 'asc' },
     });
+    const recurringOccurrences =
+      await this.recurringBookings.listRuleOccurrencesForDay({
+        resourceId: params.resourceId,
+        localDay,
+        timeZone,
+        windowStartUtc,
+        maxEndUtc,
+      });
 
     return {
       res,
@@ -320,6 +348,7 @@ export class BookingService {
       windowStartUtc,
       maxEndUtc,
       bookings,
+      recurringOccurrences,
     };
   }
 
@@ -359,6 +388,7 @@ export class BookingService {
       maxEndUtc,
       windowStartUtc,
       bookings,
+      recurringOccurrences,
     } = ctx;
     const now = params.now ?? new Date();
 
@@ -381,8 +411,11 @@ export class BookingService {
           if (end > maxEndUtc) {
             continue;
           }
-          const clash = bookings.some((b) =>
-            intervalsOverlap(t0, end, b.startTime, b.endTime),
+          const clash = this.hasClashWithOccupiedIntervals(
+            t0,
+            end,
+            bookings,
+            recurringOccurrences,
           );
           if (!clash) {
             ok = true;
@@ -442,6 +475,7 @@ export class BookingService {
       localDay,
       maxEndUtc,
       bookings,
+      recurringOccurrences,
     } = ctx;
     const now = params.now ?? new Date();
     const h = params.startHour;
@@ -459,8 +493,11 @@ export class BookingService {
       if (end > maxEndUtc) {
         continue;
       }
-      const clash = bookings.some((b) =>
-        intervalsOverlap(t0, end, b.startTime, b.endTime),
+      const clash = this.hasClashWithOccupiedIntervals(
+        t0,
+        end,
+        bookings,
+        recurringOccurrences,
       );
       if (!clash) {
         out.push(dur);
@@ -597,6 +634,20 @@ export class BookingService {
           },
         });
         if (clash) {
+          throw new SlotTakenError();
+        }
+        const recurringOccurrences =
+          await this.recurringBookings.listRuleOccurrencesForDay({
+            resourceId: params.resourceId,
+            localDay,
+            timeZone,
+            windowStartUtc: ctx.windowStartUtc,
+            maxEndUtc,
+          });
+        const recurringClash = recurringOccurrences.some((r) =>
+          intervalsOverlap(startTime, endTime, r.startTime, r.endTime),
+        );
+        if (recurringClash) {
           throw new SlotTakenError();
         }
         return tx.booking.create({
@@ -1001,6 +1052,7 @@ export class BookingService {
       slotEndHour,
       localDay,
       bookings,
+      recurringOccurrences,
     } = ctx;
     const now = params.now ?? new Date();
 
@@ -1042,6 +1094,23 @@ export class BookingService {
       lines.push('');
     }
 
+    if (recurringOccurrences.length > 0) {
+      lines.push(this.uiT(lang, 'grid.recurringHeader'));
+      for (const r of recurringOccurrences) {
+        const sport = this.uiT(lang, `sport.${r.sportKindCode}`);
+        const a = formatInTimeZone(r.startTime, timeZone, 'HH:mm');
+        const z = formatInTimeZone(r.endTime, timeZone, 'HH:mm');
+        lines.push(
+          this.uiT(lang, 'grid.recurringRow', {
+            from: a,
+            to: z,
+            sport,
+          }),
+        );
+      }
+      lines.push('');
+    }
+
     if (dayClosed) {
       lines.push(this.uiT(lang, 'grid.dayClosed'));
       return lines.join('\n');
@@ -1056,7 +1125,10 @@ export class BookingService {
         lines.push(this.uiT(lang, 'grid.hourPast', { hour: hh }));
         continue;
       }
-      const occ = hourSegmentOccupancy(segStart, segEnd, bookings);
+      const occ = hourSegmentOccupancy(segStart, segEnd, [
+        ...bookings,
+        ...recurringOccurrences,
+      ]);
       if (occ === 'free') {
         lines.push(this.uiT(lang, 'grid.hourFree', { hour: hh }));
       } else if (occ === 'full') {

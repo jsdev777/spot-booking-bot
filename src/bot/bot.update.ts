@@ -11,6 +11,7 @@ import {
   BookingService,
   type BookingStartSlot,
 } from '../booking/booking.service';
+import { RecurringBookingService } from '../booking/recurring-booking.service';
 import {
   BookingNotFoundError,
   BookingWindowClosedError,
@@ -145,7 +146,15 @@ interface SetupDraft {
     | 'bw_end'
     | 'limit_pick_day'
     | 'limit_pick_hours'
-    | 'sport_kinds_pick';
+    | 'sport_kinds_pick'
+    | 'recurring_pick_resource'
+    | 'recurring_pick_action'
+    | 'recurring_pick_sport'
+    | 'recurring_pick_weekday'
+    | 'recurring_pick_start'
+    | 'recurring_pick_duration'
+    | 'recurring_pick_end_date'
+    | 'recurring_list_delete';
   bwTzDraft?: string;
   bwStartHourDraft?: number;
   /** ISO 1–7 для мастера лимита по дням. */
@@ -153,6 +162,13 @@ interface SetupDraft {
   allBookingsDayOffsetDraft?: 0 | 1;
   allBookingsRowLabelsDraft?: string[];
   allBookingsBookingIdsDraft?: string[];
+  recurringResourceIdDraft?: string;
+  recurringSportKindCodeDraft?: SportKindCode;
+  recurringWeekdayDraft?: number;
+  recurringStartMinuteOfDayDraft?: number;
+  recurringDurationMinutesDraft?: BookingDurationMinutes;
+  recurringRuleIdsDraft?: string[];
+  recurringRuleLabelsDraft?: string[];
   /** Після часового поясу одразу крок видимості (істотує майданчик), без вибору єдиного «годинника». */
   postTzVisibilityOnly?: boolean;
   /** Крок 1: очікуємо підтвердження видалення майданчика. */
@@ -208,6 +224,7 @@ export class BotUpdate {
 
   constructor(
     private readonly booking: BookingService,
+    private readonly recurringBookings: RecurringBookingService,
     private readonly community: CommunityService,
     private readonly resources: ResourceService,
     private readonly telegramMembers: TelegramMembersService,
@@ -3444,7 +3461,8 @@ export class BotUpdate {
     return Markup.keyboard([
       [this.kb().setupVenues, this.kb().setupGroupRules],
       [this.kb().setupBookingWindow, this.kb().setupBookingLimit],
-      [this.kb().setupAllBookings, this.kb().setupLinkExistingResource],
+      [this.kb().setupAllBookings, this.kb().setupRecurringBookings],
+      [this.kb().setupLinkExistingResource],
       [this.kb().setupCancel],
     ])
       .resize()
@@ -3483,6 +3501,7 @@ export class BotUpdate {
       venues: lbl.setupVenues,
       groupRules: lbl.setupGroupRules,
       allBookings: lbl.setupAllBookings,
+      recurringBookings: lbl.setupRecurringBookings,
       linkExisting: lbl.setupLinkExistingResource,
       bookingWindow: lbl.setupBookingWindow,
       bookingLimit: lbl.setupBookingLimit,
@@ -3540,6 +3559,95 @@ export class BotUpdate {
   private adminAllBookingsReplyMarkup(labels: string[]) {
     const rows = kbRowsPaired(labels);
     rows.push([this.kb().menuDayToday, this.kb().menuDayTomorrow]);
+    rows.push([this.kb().menuBack, this.kb().menuMain]);
+    rows.push([this.kb().setupCancel]);
+    return Markup.keyboard(rows).resize().persistent(true);
+  }
+
+  private setupRecurringPickResourceReplyMarkup(
+    list: {
+      id: string;
+      name: string;
+      address?: string | null;
+      visibility: ResourceVisibility;
+    }[],
+  ) {
+    const labels = list.map((r, i) =>
+      this.resourcePickButtonLabel(r, i, { markInactive: true }),
+    );
+    const rows = kbRowsPaired(labels);
+    rows.push([this.kb().menuBack, this.kb().menuMain]);
+    rows.push([this.kb().setupCancel]);
+    return Markup.keyboard(rows).resize().persistent(true);
+  }
+
+  private setupRecurringActionReplyMarkup() {
+    return Markup.keyboard([
+      [this.kb().setupRecurringCreate, this.kb().setupRecurringDelete],
+      [this.kb().menuBack, this.kb().menuMain],
+      [this.kb().setupCancel],
+    ])
+      .resize()
+      .persistent(true);
+  }
+
+  private setupRecurringWeekdayReplyMarkup() {
+    return Markup.keyboard([
+      ...kbRowsPaired([...this.whIsoLabels()]),
+      [this.kb().menuBack, this.kb().menuMain],
+      [this.kb().setupCancel],
+    ])
+      .resize()
+      .persistent(true);
+  }
+
+  private setupRecurringStartTimeReplyMarkup() {
+    const labels: string[] = [];
+    for (let h = 0; h <= 23; h++) {
+      labels.push(`${String(h).padStart(2, '0')}:00`);
+      labels.push(`${String(h).padStart(2, '0')}:30`);
+    }
+    const rows = kbRowsPaired(labels);
+    rows.push([this.kb().menuBack, this.kb().menuMain]);
+    rows.push([this.kb().setupCancel]);
+    return Markup.keyboard(rows).resize().persistent(true);
+  }
+
+  private setupRecurringDurationReplyMarkup() {
+    const rows = kbRowsPaired([
+      this.kb().duration1h,
+      this.kb().duration90m,
+      this.kb().duration2h,
+    ]);
+    rows.push([this.kb().menuBack, this.kb().menuMain]);
+    rows.push([this.kb().setupCancel]);
+    return Markup.keyboard(rows).resize().persistent(true);
+  }
+
+  private recurringRuleLabel(item: {
+    weekday: number;
+    startMinuteOfDay: number;
+    durationMinutes: number;
+    endDate: Date;
+    sportKindCode: SportKindCode;
+  }): string {
+    const day = this.whIsoLabels()[item.weekday - 1];
+    const h = Math.floor(item.startMinuteOfDay / 60);
+    const m = item.startMinuteOfDay % 60;
+    const start = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    const sport = this.botT(this.kb().lang, `sport.${item.sportKindCode}`);
+    const dur =
+      item.durationMinutes === 60
+        ? this.kb().duration1h
+        : item.durationMinutes === 90
+          ? this.kb().duration90m
+          : this.kb().duration2h;
+    const endDate = formatInTimeZone(item.endDate, 'UTC', 'yyyy-MM-dd');
+    return `${day} ${start} · ${dur} · ${sport} · ${endDate}`.slice(0, 64);
+  }
+
+  private setupRecurringDeleteReplyMarkup(labels: string[]) {
+    const rows = kbRowsPaired(labels);
     rows.push([this.kb().menuBack, this.kb().menuMain]);
     rows.push([this.kb().setupCancel]);
     return Markup.keyboard(rows).resize().persistent(true);
@@ -3997,6 +4105,517 @@ export class BotUpdate {
       }),
       this.setupVenuesHubReplyMarkup(),
     );
+    return true;
+  }
+
+  private clearRecurringDraft(draft: SetupDraft): void {
+    delete draft.recurringResourceIdDraft;
+    delete draft.recurringSportKindCodeDraft;
+    delete draft.recurringWeekdayDraft;
+    delete draft.recurringStartMinuteOfDayDraft;
+    delete draft.recurringDurationMinutesDraft;
+    delete draft.recurringRuleIdsDraft;
+    delete draft.recurringRuleLabelsDraft;
+  }
+
+  private async validateRecurringSlotAgainstWorkingHours(params: {
+    telegramChatId: bigint;
+    resourceId: string;
+    weekday: number;
+    startMinuteOfDay: number;
+    durationMinutes: number;
+  }): Promise<boolean> {
+    const resource = await this.resources.findByIdForChat(
+      params.resourceId,
+      params.telegramChatId,
+    );
+    if (!resource) {
+      return false;
+    }
+    const row = resource.workingHours.find((w) => w.weekday === params.weekday);
+    if (
+      !row ||
+      row.isClosed ||
+      row.slotStartHour == null ||
+      row.slotEndHour == null
+    ) {
+      return false;
+    }
+    const start = params.startMinuteOfDay;
+    const end = params.startMinuteOfDay + params.durationMinutes;
+    const minStart = row.slotStartHour * 60;
+    const maxEnd = (row.slotEndHour + 1) * 60;
+    return start >= minStart && end <= maxEnd;
+  }
+
+  private async handleSetupRecurringFlow(
+    ctx: Context,
+    text: string,
+    draft: SetupDraft,
+    sk: string,
+    targetGroupChatId: bigint,
+    chatTitle: string,
+    list: {
+      id: string;
+      name: string;
+      address?: string | null;
+      visibility: ResourceVisibility;
+      sportKinds?: { sportKindCode: SportKindCode }[];
+    }[],
+  ): Promise<boolean> {
+    const sub = draft.venuesSubstep;
+    if (
+      sub !== 'recurring_pick_resource' &&
+      sub !== 'recurring_pick_action' &&
+      sub !== 'recurring_pick_sport' &&
+      sub !== 'recurring_pick_weekday' &&
+      sub !== 'recurring_pick_start' &&
+      sub !== 'recurring_pick_duration' &&
+      sub !== 'recurring_pick_end_date' &&
+      sub !== 'recurring_list_delete'
+    ) {
+      return false;
+    }
+    const toHub = async () => {
+      draft.venuesSubstep = 'hub';
+      this.clearRecurringDraft(draft);
+      this.setupDrafts.set(sk, draft);
+      await this.sendSetupDm(
+        ctx,
+        this.setupHubPromptText(chatTitle),
+        this.setupVenuesHubReplyMarkup(),
+      );
+    };
+    if (text === this.kb().menuMain) {
+      await toHub();
+      return true;
+    }
+    if (sub === 'recurring_pick_resource') {
+      if (text === this.kb().menuBack) {
+        await toHub();
+        return true;
+      }
+      const m = text.match(/^(\d+)\.\s/);
+      if (!m) {
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.pickNumberOrBackButton', {
+            back: this.kb().menuBack,
+          }),
+        );
+        return true;
+      }
+      const idx = Number(m[1]) - 1;
+      const picked = list[idx];
+      if (!picked) {
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.pickNumberOrBackButton', {
+            back: this.kb().menuBack,
+          }),
+        );
+        return true;
+      }
+      draft.venuesSubstep = 'recurring_pick_action';
+      this.clearRecurringDraft(draft);
+      draft.recurringResourceIdDraft = picked.id;
+      this.setupDrafts.set(sk, draft);
+      await this.sendSetupDm(
+        ctx,
+        this.botT(this.kb().lang, 'setup.recurringPickAction', {
+          venue: picked.name,
+        }),
+        this.setupRecurringActionReplyMarkup(),
+      );
+      return true;
+    }
+    const resourceId = draft.recurringResourceIdDraft;
+    if (!resourceId) {
+      await toHub();
+      return true;
+    }
+    const pickedResource = list.find((r) => r.id === resourceId);
+    const resourceName = pickedResource?.name ?? this.botT(this.kb().lang, 'common.emDash');
+    if (sub === 'recurring_pick_action') {
+      if (text === this.kb().menuBack) {
+        draft.venuesSubstep = 'recurring_pick_resource';
+        this.clearRecurringDraft(draft);
+        this.setupDrafts.set(sk, draft);
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.recurringPickVenue'),
+          this.setupRecurringPickResourceReplyMarkup(list),
+        );
+        return true;
+      }
+      if (text === this.kb().setupRecurringCreate) {
+        draft.venuesSubstep = 'recurring_pick_sport';
+        delete draft.recurringSportKindCodeDraft;
+        this.setupDrafts.set(sk, draft);
+        const sportKinds = this.allSportKindCodesForPicker();
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.recurringPickSport', {
+            venue: resourceName,
+          }),
+          this.sportPickReplyMarkup(sportKinds),
+        );
+        return true;
+      }
+      if (text === this.kb().setupRecurringDelete) {
+        const rules = await this.recurringBookings.listRulesForCommunityResource({
+          telegramChatId: targetGroupChatId,
+          resourceId,
+        });
+        if (rules.length === 0) {
+          await this.sendSetupDm(
+            ctx,
+            this.botT(this.kb().lang, 'setup.recurringNoRulesForVenue', {
+              venue: resourceName,
+            }),
+            this.setupRecurringActionReplyMarkup(),
+          );
+          return true;
+        }
+        const labels = rules.map((r) => this.recurringRuleLabel(r));
+        draft.venuesSubstep = 'recurring_list_delete';
+        draft.recurringRuleIdsDraft = rules.map((r) => r.id);
+        draft.recurringRuleLabelsDraft = labels;
+        this.setupDrafts.set(sk, draft);
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.recurringDeletePrompt', {
+            venue: resourceName,
+          }),
+          this.setupRecurringDeleteReplyMarkup(labels),
+        );
+        return true;
+      }
+      await this.sendSetupDm(
+        ctx,
+        this.botT(this.kb().lang, 'setup.pickOptionFromList'),
+      );
+      return true;
+    }
+    if (sub === 'recurring_pick_sport') {
+      if (text === this.kb().menuBack) {
+        draft.venuesSubstep = 'recurring_pick_action';
+        delete draft.recurringSportKindCodeDraft;
+        this.setupDrafts.set(sk, draft);
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.recurringPickAction', {
+            venue: resourceName,
+          }),
+          this.setupRecurringActionReplyMarkup(),
+        );
+        return true;
+      }
+      const code = sportLabelToCodeMap(this.i18n, this.kb().lang).get(text);
+      if (!code) {
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.pickOptionFromList'),
+        );
+        return true;
+      }
+      draft.venuesSubstep = 'recurring_pick_weekday';
+      draft.recurringSportKindCodeDraft = code;
+      this.setupDrafts.set(sk, draft);
+      await this.sendSetupDm(
+        ctx,
+        this.botT(this.kb().lang, 'setup.recurringPickWeekday'),
+        this.setupRecurringWeekdayReplyMarkup(),
+      );
+      return true;
+    }
+    if (sub === 'recurring_pick_weekday') {
+      if (text === this.kb().menuBack) {
+        draft.venuesSubstep = 'recurring_pick_sport';
+        delete draft.recurringWeekdayDraft;
+        this.setupDrafts.set(sk, draft);
+        const sportKinds = this.allSportKindCodesForPicker();
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.recurringPickSport', {
+            venue: resourceName,
+          }),
+          this.sportPickReplyMarkup(sportKinds),
+        );
+        return true;
+      }
+      const weekdayIdx = this.whIsoLabels().findIndex((dayLabel) => dayLabel === text);
+      if (weekdayIdx < 0) {
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.pickWeekdayOrBack', {
+            back: this.kb().menuBack,
+          }),
+        );
+        return true;
+      }
+      draft.venuesSubstep = 'recurring_pick_start';
+      draft.recurringWeekdayDraft = weekdayIdx + 1;
+      this.setupDrafts.set(sk, draft);
+      await this.sendSetupDm(
+        ctx,
+        this.botT(this.kb().lang, 'setup.recurringPickStartTime'),
+        this.setupRecurringStartTimeReplyMarkup(),
+      );
+      return true;
+    }
+    if (sub === 'recurring_pick_start') {
+      if (text === this.kb().menuBack) {
+        draft.venuesSubstep = 'recurring_pick_weekday';
+        delete draft.recurringStartMinuteOfDayDraft;
+        this.setupDrafts.set(sk, draft);
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.recurringPickWeekday'),
+          this.setupRecurringWeekdayReplyMarkup(),
+        );
+        return true;
+      }
+      const hm = text.match(/^(\d{1,2}):(00|30)$/);
+      if (!hm) {
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.recurringPickHalfHour'),
+        );
+        return true;
+      }
+      const hour = Number(hm[1]);
+      const minute = Number(hm[2]);
+      if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.recurringPickHalfHour'),
+        );
+        return true;
+      }
+      draft.venuesSubstep = 'recurring_pick_duration';
+      draft.recurringStartMinuteOfDayDraft = hour * 60 + minute;
+      this.setupDrafts.set(sk, draft);
+      await this.sendSetupDm(
+        ctx,
+        this.botT(this.kb().lang, 'setup.recurringPickDuration'),
+        this.setupRecurringDurationReplyMarkup(),
+      );
+      return true;
+    }
+    if (sub === 'recurring_pick_duration') {
+      if (text === this.kb().menuBack) {
+        draft.venuesSubstep = 'recurring_pick_start';
+        delete draft.recurringDurationMinutesDraft;
+        this.setupDrafts.set(sk, draft);
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.recurringPickStartTime'),
+          this.setupRecurringStartTimeReplyMarkup(),
+        );
+        return true;
+      }
+      const durationMinutes = durationMinutesFromReplyLabel(this.kb(), text);
+      if (!durationMinutes) {
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.pickOptionFromList'),
+        );
+        return true;
+      }
+      draft.venuesSubstep = 'recurring_pick_end_date';
+      draft.recurringDurationMinutesDraft = durationMinutes;
+      this.setupDrafts.set(sk, draft);
+      await this.sendSetupDm(
+        ctx,
+        this.botT(this.kb().lang, 'setup.recurringPickEndDate'),
+        Markup.keyboard([
+          [this.kb().menuBack, this.kb().menuMain],
+          [this.kb().setupCancel],
+        ])
+          .resize()
+          .persistent(true),
+      );
+      return true;
+    }
+    if (sub === 'recurring_pick_end_date') {
+      if (text === this.kb().menuBack) {
+        draft.venuesSubstep = 'recurring_pick_duration';
+        this.setupDrafts.set(sk, draft);
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.recurringPickDuration'),
+          this.setupRecurringDurationReplyMarkup(),
+        );
+        return true;
+      }
+      const m = text.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) {
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.recurringDateFormatInvalid'),
+        );
+        return true;
+      }
+      const endDate = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00.000Z`);
+      if (Number.isNaN(endDate.getTime())) {
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.recurringDateFormatInvalid'),
+        );
+        return true;
+      }
+      const weekday = draft.recurringWeekdayDraft;
+      const startMinute = draft.recurringStartMinuteOfDayDraft;
+      const duration = draft.recurringDurationMinutesDraft;
+      const sportKindCode = draft.recurringSportKindCodeDraft;
+      if (
+        weekday == null ||
+        startMinute == null ||
+        duration == null ||
+        sportKindCode == null
+      ) {
+        await toHub();
+        return true;
+      }
+      const fitsWorkingHours = await this.validateRecurringSlotAgainstWorkingHours({
+        telegramChatId: targetGroupChatId,
+        resourceId,
+        weekday,
+        startMinuteOfDay: startMinute,
+        durationMinutes: duration,
+      });
+      if (!fitsWorkingHours) {
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.recurringOutsideWorkingHours'),
+        );
+        return true;
+      }
+      try {
+        await this.recurringBookings.createRule({
+          telegramChatId: targetGroupChatId,
+          resourceId,
+          createdByTelegramUserId: ctx.from!.id,
+          sportKindCode,
+          weekday,
+          startMinuteOfDay: startMinute,
+          durationMinutes: duration,
+          endDate,
+        });
+      } catch (error) {
+        const code = error instanceof Error ? error.message : '';
+        if (code === 'RECURRING_RULE_DUPLICATE') {
+          await this.sendSetupDm(
+            ctx,
+            this.botT(this.kb().lang, 'setup.recurringDuplicateRule'),
+          );
+          return true;
+        }
+        if (code === 'RECURRING_RULE_OVERLAP') {
+          await this.sendSetupDm(
+            ctx,
+            this.botT(this.kb().lang, 'setup.recurringOverlapRule'),
+          );
+          return true;
+        }
+        if (code === 'END_DATE_IN_PAST') {
+          await this.sendSetupDm(
+            ctx,
+            this.botT(this.kb().lang, 'setup.recurringEndDateInPast'),
+          );
+          return true;
+        }
+        this.logger.error(error instanceof Error ? error.message : error);
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.persistSetupFailed'),
+        );
+        return true;
+      }
+      draft.venuesSubstep = 'recurring_pick_action';
+      delete draft.recurringSportKindCodeDraft;
+      delete draft.recurringWeekdayDraft;
+      delete draft.recurringStartMinuteOfDayDraft;
+      delete draft.recurringDurationMinutesDraft;
+      this.setupDrafts.set(sk, draft);
+      await this.sendSetupDm(
+        ctx,
+        this.botT(this.kb().lang, 'setup.recurringSaved', {
+          venue: resourceName,
+        }),
+        this.setupRecurringActionReplyMarkup(),
+      );
+      return true;
+    }
+    if (sub === 'recurring_list_delete') {
+      if (text === this.kb().menuBack) {
+        draft.venuesSubstep = 'recurring_pick_action';
+        delete draft.recurringRuleIdsDraft;
+        delete draft.recurringRuleLabelsDraft;
+        this.setupDrafts.set(sk, draft);
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.recurringPickAction', {
+            venue: resourceName,
+          }),
+          this.setupRecurringActionReplyMarkup(),
+        );
+        return true;
+      }
+      const labels = draft.recurringRuleLabelsDraft ?? [];
+      const ids = draft.recurringRuleIdsDraft ?? [];
+      const idx = labels.indexOf(text);
+      if (idx < 0 || !ids[idx]) {
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.pickOptionFromList'),
+        );
+        return true;
+      }
+      const deleted = await this.recurringBookings.deleteRule({
+        telegramChatId: targetGroupChatId,
+        resourceId,
+        ruleId: ids[idx],
+      });
+      if (!deleted) {
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.recurringRuleAlreadyDeleted'),
+        );
+      }
+      const rules = await this.recurringBookings.listRulesForCommunityResource({
+        telegramChatId: targetGroupChatId,
+        resourceId,
+      });
+      if (rules.length === 0) {
+        draft.venuesSubstep = 'recurring_pick_action';
+        delete draft.recurringRuleIdsDraft;
+        delete draft.recurringRuleLabelsDraft;
+        this.setupDrafts.set(sk, draft);
+        await this.sendSetupDm(
+          ctx,
+          this.botT(this.kb().lang, 'setup.recurringNoRulesForVenue', {
+            venue: resourceName,
+          }),
+          this.setupRecurringActionReplyMarkup(),
+        );
+        return true;
+      }
+      const newLabels = rules.map((r) => this.recurringRuleLabel(r));
+      draft.venuesSubstep = 'recurring_list_delete';
+      draft.recurringRuleIdsDraft = rules.map((r) => r.id);
+      draft.recurringRuleLabelsDraft = newLabels;
+      this.setupDrafts.set(sk, draft);
+      await this.sendSetupDm(
+        ctx,
+        this.botT(this.kb().lang, 'setup.recurringDeletedPrompt', {
+          venue: resourceName,
+        }),
+        this.setupRecurringDeleteReplyMarkup(newLabels),
+      );
+      return true;
+    }
     return true;
   }
 
@@ -4813,8 +5432,21 @@ export class BotUpdate {
         ) {
           return;
         }
-
         const list = await this.resources.listForChat(targetGroupChatId);
+        if (
+          await this.handleSetupRecurringFlow(
+            ctx,
+            text,
+            draft,
+            sk,
+            targetGroupChatId,
+            chatTitle,
+            list,
+          )
+        ) {
+          return;
+        }
+
         let linkable: {
           id: string;
           name: string;
@@ -4917,6 +5549,26 @@ export class BotUpdate {
               ctx,
               this.botT(this.kb().lang, 'setup.allBookingsPickDayTitle'),
               this.setupAllBookingsDayReplyMarkup(),
+            );
+            return;
+          }
+          if (text === this.kb().setupRecurringBookings) {
+            if (list.length === 0) {
+              await this.sendSetupDm(
+                ctx,
+                this.botT(this.kb().lang, 'setup.configureVenueFirst', {
+                  venues: this.kb().setupVenues,
+                }),
+              );
+              return;
+            }
+            draft.venuesSubstep = 'recurring_pick_resource';
+            this.clearRecurringDraft(draft);
+            this.setupDrafts.set(sk, draft);
+            await this.sendSetupDm(
+              ctx,
+              this.botT(this.kb().lang, 'setup.recurringPickVenue'),
+              this.setupRecurringPickResourceReplyMarkup(list),
             );
             return;
           }

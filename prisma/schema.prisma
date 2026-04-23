@@ -22,6 +22,7 @@ model SportKind {
   nameUa        String        @map("name_ua")
   bookings      Booking[]
   resources     ResourceSportKind[]
+  recurringBookingRules RecurringBookingRule[]
 
   @@map("sport_kinds")
 }
@@ -150,6 +151,7 @@ model CommunityResource {
   resource                  Resource                   @relation(fields: [resourceId], references: [id], onDelete: Cascade)
   userBookingLimits         CommunityResourceUserBookingLimit[]
   bookings                  Booking[]
+  recurringBookingRules     RecurringBookingRule[]
 
   @@unique([communityId, resourceId])
   @@index([communityId])
@@ -180,6 +182,7 @@ model Resource {
   bookings     Booking[]
   workingHours ResourceWorkingHours[]
   sportKinds   ResourceSportKind[]
+  recurringBookingRules RecurringBookingRule[]
 
   @@map("resources")
 }
@@ -262,4 +265,27 @@ model BookingLookingParticipant {
   @@index([bookingId])
   @@index([telegramUserId])
   @@map("booking_looking_participants")
+}
+
+model RecurringBookingRule {
+  id                      String        @id @default(uuid())
+  communityResourceId     String        @map("community_resource_id")
+  communityResource       CommunityResource @relation(fields: [communityResourceId], references: [id], onDelete: Cascade)
+  resourceId              String        @map("resource_id")
+  resource                Resource      @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  sportKindCode           SportKindCode @map("sport_kind_code")
+  sportKind               SportKind     @relation(fields: [sportKindCode], references: [sportKindCode], onDelete: Restrict, onUpdate: Cascade)
+  weekday                 Int
+  startMinuteOfDay        Int           @map("start_minute_of_day")
+  durationMinutes         Int           @map("duration_minutes")
+  endDate                 DateTime      @db.Date @map("end_date")
+  createdByTelegramUserId BigInt        @map("created_by_telegram_user_id")
+  createdAt               DateTime      @default(now()) @map("created_at")
+  updatedAt               DateTime      @updatedAt @map("updated_at")
+
+  @@unique([communityResourceId, weekday, startMinuteOfDay, durationMinutes, endDate], name: "recurring_booking_rules_unique_slot")
+  @@index([resourceId, weekday])
+  @@index([communityResourceId])
+  @@index([endDate])
+  @@map("recurring_booking_rules")
 }
