@@ -22,26 +22,6 @@ async function replaceUniformWorkingHours(
   });
 }
 
-async function seedCommunityUserBookingLimits(
-  tx: Prisma.TransactionClient,
-  communityId: string,
-) {
-  const n = await tx.communityUserBookingLimit.count({
-    where: { communityId },
-  });
-  if (n > 0) {
-    return;
-  }
-  await tx.communityUserBookingLimit.createMany({
-    data: [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({
-      id: randomUUID(),
-      communityId,
-      weekday,
-      maxMinutes: null,
-    })),
-  });
-}
-
 async function seedCommunityResourceUserBookingLimits(
   tx: Prisma.TransactionClient,
   communityResourceId: string,
@@ -147,7 +127,6 @@ export class CommunityService {
             name: params.name,
           },
         });
-        await seedCommunityUserBookingLimits(tx, community.id);
         const resource = await tx.resource.create({
           data: {
             name: params.resourceName,
@@ -499,7 +478,6 @@ export class CommunityService {
       throw new Error('Community not found');
     }
     return this.prisma.$transaction(async (tx) => {
-      await seedCommunityUserBookingLimits(tx, c.id);
       const links = await tx.communityResource.findMany({
         where: { communityId: c.id },
         select: { id: true },
@@ -516,12 +494,6 @@ export class CommunityService {
           data: { maxMinutes: params.maxMinutes },
         });
       }
-      return tx.communityUserBookingLimit.update({
-        where: {
-          communityId_weekday: { communityId: c.id, weekday: params.weekday },
-        },
-        data: { maxMinutes: params.maxMinutes },
-      });
     });
   }
 

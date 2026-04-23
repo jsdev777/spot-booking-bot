@@ -54,7 +54,6 @@ model Community {
   /// End of the window for participants, hours 1–24: [start, end); 24 — until midnight. Does not apply to administrators
   bookingWindowEndHour   Int                         @default(24) @map("booking_window_end_hour")
   communityResources     CommunityResource[]
-  userBookingLimits      CommunityUserBookingLimit[]
   groupMemberships       GroupChatMembership[]
   rules                  CommunityRules[]
 
@@ -126,20 +125,6 @@ model GroupChatMembership {
   @@index([isActive])
   @@index([languageId])
   @@map("group_chat_memberships")
-}
-
-/// The total number of minutes a single user (Telegram) can reserve in a group each day of the week (ISO 1–7)
-/// The day of the week and calendar date are based on the platform's time zone (`Resource.timeZone`) at the time the reservation is made. null = no limit
-model CommunityUserBookingLimit {
-  id          String    @id @default(uuid())
-  communityId String    @map("community_id")
-  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
-  weekday     Int
-  maxMinutes  Int?      @map("max_minutes")
-
-  @@unique([communityId, weekday])
-  @@index([communityId])
-  @@map("community_user_booking_limits")
 }
 
 /// Resource in a specific community context
