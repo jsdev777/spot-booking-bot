@@ -1,4 +1,5 @@
 import { BookingService } from './booking.service';
+import { SlotTakenError } from './booking.errors';
 
 describe('BookingService daily limit by resource', () => {
   it('applies cap per user + resource per day', async () => {
@@ -32,7 +33,7 @@ describe('BookingService daily limit by resource', () => {
         Promise.resolve({
           id: resourceId,
           name: resourceId,
-          timeZone: 'Europe/Kyiv',
+        timeZone: 'UTC',
           workingHours: [
             {
               weekday: 1,
@@ -42,7 +43,7 @@ describe('BookingService daily limit by resource', () => {
             },
           ],
           community: {
-            bookingWindowTimeZone: 'Europe/Kyiv',
+            bookingWindowTimeZone: 'UTC',
             bookingWindowStartHour: 0,
             bookingWindowEndHour: 24,
           },
@@ -53,10 +54,21 @@ describe('BookingService daily limit by resource', () => {
     };
 
     const i18n = { t: () => '' };
+    const recurringBookings = {
+      listRuleOccurrencesForDay: jest.fn().mockResolvedValue([]),
+    };
+    const metrics = {
+      observeBookingSlotsBuildDuration: jest.fn(),
+      incBookingCreateConflict: jest.fn(),
+      incBookingCreate: jest.fn(),
+      observeBookingCreateDuration: jest.fn(),
+      incBookingCreateSystemError: jest.fn(),
+    };
     const svc = new BookingService(
       prisma as never,
       resources as never,
-      {} as never,
+      recurringBookings as never,
+      metrics as never,
       i18n as never,
     );
     const baseParams = {
@@ -80,5 +92,122 @@ describe('BookingService daily limit by resource', () => {
 
     expect(a).toEqual([]);
     expect(b).toEqual([60]);
+  });
+
+  it('blocks start slot when recurring booking exists', async () => {
+    const prisma = {
+      booking: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const resources = {
+      findByIdForChat: jest.fn().mockResolvedValue({
+        id: 'resource-a',
+        name: 'resource-a',
+        timeZone: 'UTC',
+        workingHours: [
+          { weekday: 1, isClosed: false, slotStartHour: 8, slotEndHour: 21 },
+        ],
+        community: {
+          bookingWindowTimeZone: 'UTC',
+          bookingWindowStartHour: 0,
+          bookingWindowEndHour: 24,
+        },
+        communityResourceId: 'cr-resource-a',
+      }),
+    };
+    const recurringBookings = {
+      listRuleOccurrencesForDay: jest.fn().mockResolvedValue([
+        {
+          ruleId: 'rule-1',
+          startTime: new Date('2026-04-06T08:00:00Z'),
+          endTime: new Date('2026-04-06T10:00:00Z'),
+          sportKindCode: 'TENNIS',
+        },
+      ]),
+    };
+    const metrics = { observeBookingSlotsBuildDuration: jest.fn() };
+    const svc = new BookingService(
+      prisma as never,
+      resources as never,
+      recurringBookings as never,
+      metrics as never,
+      { t: () => '' } as never,
+    );
+    const slots = await svc.getAvailableStartSlots({
+      resourceId: 'resource-a',
+      telegramChatId: 1n,
+      dayOffset: 0,
+      now: new Date('2026-04-06T06:00:00Z'),
+      telegramGroupAdmin: false,
+    });
+    expect(slots.some((s) => s.hour === 11 && s.minute === 0)).toBe(true);
+    expect(slots.some((s) => s.hour === 10 && s.minute === 0)).toBe(true);
+    expect(slots.some((s) => s.hour === 8 && s.minute === 0)).toBe(false);
+  });
+
+  it('throws SlotTakenError when creating booking over recurring rule', async () => {
+    const tx = {
+      booking: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn(),
+      },
+    };
+    const prisma = {
+      communityResourceUserBookingLimit: { findMany: jest.fn().mockResolvedValue([]) },
+      booking: { findMany: jest.fn().mockResolvedValue([]) },
+      $transaction: jest.fn().mockImplementation((cb: (arg: unknown) => unknown) => cb(tx)),
+    };
+    const resources = {
+      findByIdForChat: jest.fn().mockResolvedValue({
+        id: 'resource-a',
+        name: 'resource-a',
+        timeZone: 'UTC',
+        workingHours: [
+          { weekday: 1, isClosed: false, slotStartHour: 8, slotEndHour: 21 },
+        ],
+        community: {
+          bookingWindowTimeZone: 'UTC',
+          bookingWindowStartHour: 0,
+          bookingWindowEndHour: 24,
+        },
+        communityResourceId: 'cr-resource-a',
+      }),
+    };
+    const recurringBookings = {
+      listRuleOccurrencesForDay: jest.fn().mockResolvedValue([
+        {
+          ruleId: 'rule-1',
+          startTime: new Date('2026-04-06T09:00:00Z'),
+          endTime: new Date('2026-04-06T11:00:00Z'),
+          sportKindCode: 'TENNIS',
+        },
+      ]),
+    };
+    const metrics = {
+      incBookingCreateConflict: jest.fn(),
+      incBookingCreate: jest.fn(),
+      observeBookingCreateDuration: jest.fn(),
+      incBookingCreateSystemError: jest.fn(),
+    };
+    const svc = new BookingService(
+      prisma as never,
+      resources as never,
+      recurringBookings as never,
+      metrics as never,
+      { t: () => '' } as never,
+    );
+    await expect(
+      svc.createBooking({
+        resourceId: 'resource-a',
+        telegramChatId: 1n,
+        from: { id: 10, first_name: 'A' },
+        dayOffset: 0,
+        startHour: 9,
+        startMinute: 0,
+        durationMinutes: 120,
+        telegramGroupAdmin: true,
+        displayLocale: 'en',
+        now: new Date('2026-04-06T06:00:00Z'),
+      }),
+    ).rejects.toBeInstanceOf(SlotTakenError);
   });
 });
