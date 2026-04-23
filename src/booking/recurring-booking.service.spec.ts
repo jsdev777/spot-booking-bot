@@ -28,7 +28,13 @@ describe('RecurringBookingService', () => {
   });
 
   it('filters rules by end date before local day', async () => {
-    const findMany = jest.fn().mockResolvedValue([]);
+    let capturedWhere: { endDate: { gte: Date } } | null = null;
+    const findMany = (args: {
+      where: { endDate: { gte: Date } };
+    }): Promise<unknown[]> => {
+      capturedWhere = args.where;
+      return Promise.resolve([]);
+    };
     const prisma = { recurringBookingRule: { findMany } };
     const svc = new RecurringBookingService(prisma as never);
     const out = await svc.listRuleOccurrencesForDay({
@@ -39,7 +45,10 @@ describe('RecurringBookingService', () => {
       maxEndUtc: new Date('2026-04-07T00:00:00.000Z'),
     });
     expect(out).toEqual([]);
-    const where = findMany.mock.calls[0][0].where as { endDate: { gte: Date } };
+    if (capturedWhere == null) {
+      throw new Error('where clause was not captured');
+    }
+    const where: { endDate: { gte: Date } } = capturedWhere;
     expect(where.endDate.gte.toISOString().startsWith('2026-04-06')).toBe(true);
   });
 });
