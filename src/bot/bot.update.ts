@@ -1059,7 +1059,7 @@ export class BotUpdate {
   ) {
     const lbl = this.kb();
     const labels = items.map((it) => this.buildListBookingButtonLabel(it));
-    const rows = kbRowsPaired(labels);
+    const rows = labels.map((label) => [label]);
     rows.push([lbl.menuBack, lbl.menuMain]);
     return Markup.keyboard(rows).resize().persistent(true);
   }
@@ -1192,14 +1192,22 @@ export class BotUpdate {
       case 'book_sport':
         this.pendingBookSportResourceByUser.delete(ctx.from!.id);
         this.pendingBookDayOffsetAfterSportByUser.delete(ctx.from!.id);
-        this.setMenuState(ctx, { t: 'book_res' });
-        await ctx.reply(
-          this.botT(this.kb().lang, 'book.pickResource'),
-          this.resourcePickReplyMarkup(
-            await this.resourcesForBookingUi(chatId, admin),
-            admin,
-          ),
-        );
+        {
+          const list = await this.resourcesForBookingUi(chatId, admin);
+          if (list.length <= 1) {
+            this.resetMenuState(ctx);
+            await ctx.reply(
+              this.botT(this.kb().lang, 'menu.title'),
+              await this.mainMenuReplyMarkup(ctx),
+            );
+            return;
+          }
+          this.setMenuState(ctx, { t: 'book_res' });
+          await ctx.reply(
+            this.botT(this.kb().lang, 'book.pickResource'),
+            this.resourcePickReplyMarkup(list, admin),
+          );
+        }
         return;
       case 'book_res': {
         this.resetMenuState(ctx);
@@ -1247,6 +1255,14 @@ export class BotUpdate {
               );
               return;
             }
+          }
+          if (list.length <= 1) {
+            this.resetMenuState(ctx);
+            await ctx.reply(
+              this.botT(this.kb().lang, 'menu.title'),
+              await this.mainMenuReplyMarkup(ctx),
+            );
+            return;
           }
           this.setMenuState(ctx, {
             t: 'book_res',
@@ -3196,7 +3212,18 @@ export class BotUpdate {
           return;
         }
         if (text === this.kb().menuChangeLanguage) {
-          const gid = this.activeGroupByUser.get(from.id);
+          let gid = this.activeGroupByUser.get(from.id);
+          if (gid == null) {
+            const groups = await this.listAvailableGroupsForUser(
+              ctx.telegram,
+              from.id,
+            );
+            if (groups.length === 1) {
+              gid = groups[0].telegramChatId;
+              this.activeGroupByUser.set(from.id, gid);
+              this.groupPickerLabelsByUser.delete(from.id);
+            }
+          }
           if (gid == null) {
             await ctx.reply(
               this.botT(this.kb().lang, 'menu.changeLanguagePickGroup'),
@@ -3557,7 +3584,7 @@ export class BotUpdate {
   }
 
   private adminAllBookingsReplyMarkup(labels: string[]) {
-    const rows = kbRowsPaired(labels);
+    const rows = labels.map((label) => [label]);
     rows.push([this.kb().menuDayToday, this.kb().menuDayTomorrow]);
     rows.push([this.kb().menuBack, this.kb().menuMain]);
     rows.push([this.kb().setupCancel]);
