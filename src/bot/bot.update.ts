@@ -119,6 +119,8 @@ interface SetupDraft {
   multiResourceFlow?: boolean;
   /** Как площадка называется в боте сейчас (для текста шага 1). */
   setupResourceLabel?: string;
+  /** Режим имени сообщества: авто из Telegram или ручной. */
+  communityNameSource?: PrismaClient.CommunityNameSource;
   /** Адрес в БД на начало мастера (шаг 2). */
   setupResourceAddressLabel?: string | null;
   /** Текущая видимость в БД (для шага 6 и подсказки). */
@@ -541,10 +543,21 @@ export class BotUpdate {
       { telegramChatId: bigint; communityName: string | null }
     >();
     for (const g of byMembership) {
-      map.set(g.telegramChatId, {
-        telegramChatId: g.telegramChatId,
-        communityName: g.communityName,
-      });
+      try {
+        const m = await telegram.getChatMember(
+          g.telegramChatId.toString(),
+          userId,
+        );
+        if (!TelegramMembersService.isStatusInChat(m.status)) {
+          continue;
+        }
+        map.set(g.telegramChatId, {
+          telegramChatId: g.telegramChatId,
+          communityName: g.communityName,
+        });
+      } catch {
+        /* stale membership or bot has no access to this chat */
+      }
     }
     const communities = await this.community.listAllCommunitiesBasic();
     for (const c of communities) {
@@ -575,13 +588,28 @@ export class BotUpdate {
     telegram: Context['telegram'],
     userId: number,
   ): Promise<boolean> {
-    const byMembership =
-      await this.telegramMembers.listActiveUserCommunities(userId);
-    if (byMembership.length > 1) {
-      return true;
-    }
     const groups = await this.listAvailableGroupsForUser(telegram, userId);
     return groups.length > 1;
+  }
+
+  private async syncAutoCommunityNameFromChat(
+    telegramChatId: bigint,
+    chatTitle: string | undefined,
+  ) {
+    const title = chatTitle?.trim();
+    if (!title) {
+      return;
+    }
+    try {
+      await this.community.syncAutoCommunityNameWithChatTitle({
+        telegramChatId,
+        chatTitle: title,
+      });
+    } catch (e) {
+      this.logger.warn(
+        `auto community name sync: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
 
   private groupPickerReplyMarkup(
@@ -4875,10 +4903,17 @@ export class BotUpdate {
       return;
     }
     try {
-      const communityName = draft.groupChatTitleForPrompt?.trim() || draft.name;
+      const source =
+        draft.communityNameSource ?? PrismaClient.CommunityNameSource.AUTO;
+      const groupTitle = draft.groupChatTitleForPrompt?.trim();
+      const communityName =
+        source === PrismaClient.CommunityNameSource.AUTO
+          ? groupTitle || draft.name
+          : draft.name;
       const { resource } = await this.community.createOrUpdateFromSetup({
         telegramChatId: targetGroupChatId,
         name: communityName,
+        nameSource: source,
         address: draft.resourceAddress,
         timeZone: draft.timeZone,
         slotStartHour: draft.slotStart,
@@ -4887,7 +4922,7 @@ export class BotUpdate {
         ...(draft.resourceId && !draft.creatingNewResource
           ? { resourceId: draft.resourceId }
           : {}),
-        updateCommunityName: false,
+        updateCommunityName: !draft.multiResourceFlow,
         createNewResource: draft.creatingNewResource === true,
         resourceVisibility,
         sportKindCodes: draft.sportKindCodes,
@@ -5988,6 +6023,7 @@ export class BotUpdate {
           return;
         }
         let name: string;
+        let communityNameSource: PrismaClient.CommunityNameSource;
         if (text === this.kb().setupKeepBotName) {
           if (!draft.setupResourceLabel) {
             if (draft.creatingNewResource) {
@@ -5999,6 +6035,7 @@ export class BotUpdate {
             return;
           }
           name = draft.setupResourceLabel;
+          communityNameSource = PrismaClient.CommunityNameSource.MANUAL;
         } else if (text === this.kb().setupUseChatTitle) {
           if (draft.creatingNewResource) {
             await this.sendSetupDm(
@@ -6016,6 +6053,7 @@ export class BotUpdate {
             return;
           }
           name = t;
+          communityNameSource = PrismaClient.CommunityNameSource.AUTO;
         } else {
           const trimmed = text.trim();
           if (!trimmed) {
@@ -6041,8 +6079,10 @@ export class BotUpdate {
             return;
           }
           name = trimmed;
+          communityNameSource = PrismaClient.CommunityNameSource.MANUAL;
         }
         draft.name = name;
+        draft.communityNameSource = communityNameSource;
         draft.step = 2;
         delete draft.resourceAddress;
         this.setupDrafts.set(sk, draft);
@@ -6693,6 +6733,10 @@ export class BotUpdate {
     const u = newM.user;
     const wasIn = TelegramMembersService.isStatusInChat(oldM.status);
     const nowIn = TelegramMembersService.isStatusInChat(newM.status);
+    await this.syncAutoCommunityNameFromChat(
+      chatId,
+      'title' in chat ? chat.title : undefined,
+    );
 
     if (!nowIn && wasIn) {
       await this.telegramMembers.recordLeave({
@@ -6829,6 +6873,10 @@ export class BotUpdate {
       return;
     }
     const groupChatId = BigInt(ctx.chat.id);
+    await this.syncAutoCommunityNameFromChat(
+      groupChatId,
+      'title' in ctx.chat ? ctx.chat.title : undefined,
+    );
     const actorId = up.from?.id ?? ctx.from?.id;
     const actorEffLang =
       actorId != null
@@ -7086,6 +7134,7 @@ export class BotUpdate {
         const setupResourceVisibility = comm?.resources[0]?.visibility;
         const draftOne: SetupDraft = {
           step: 1,
+          communityNameSource: PrismaClient.CommunityNameSource.AUTO,
           groupChatTitleForPrompt: chatTitle,
           setupResourceAddressLabel,
           ...(resourceId ? { resourceId } : {}),

@@ -42,10 +42,18 @@ enum ResourceVisibility {
   @@map("resource_visibility")
 }
 
+enum CommunityNameSource {
+  AUTO
+  MANUAL
+
+  @@map("community_name_source")
+}
+
 model Community {
   id                     String                      @id @default(uuid())
   telegramChatId         BigInt                      @unique @map("telegram_chat_id")
   name                   String
+  nameSource             CommunityNameSource         @default(AUTO) @map("name_source")
   createdAt              DateTime                    @default(now()) @map("created_at")
   /// The time zone for the period during which regular participants can make reservations (local time). Chat admins and creators are not subject to this restriction
   bookingWindowTimeZone  String                      @default("Europe/Kyiv") @map("booking_window_time_zone")
