@@ -4,6 +4,7 @@ import { TelegrafModule } from 'nestjs-telegraf';
 import { BookingModule } from '../booking/booking.module';
 import { CommunityModule } from '../community/community.module';
 import { BotUpdate } from './bot.update';
+import { CommunityNameSyncCronService } from './community-name-sync.cron.service';
 
 @Module({
   imports: [
@@ -25,7 +26,7 @@ import { BotUpdate } from './bot.update';
       inject: [ConfigService],
     }),
   ],
-  providers: [BotUpdate],
+  providers: [BotUpdate, CommunityNameSyncCronService],
   exports: [TelegrafModule],
 })
 export class BotModule {}

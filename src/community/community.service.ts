@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import { Prisma, ResourceVisibility, SportKindCode } from '@prisma/client';
+import {
+  CommunityNameSource,
+  Prisma,
+  ResourceVisibility,
+  SportKindCode,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 async function replaceUniformWorkingHours(
@@ -87,6 +92,14 @@ export class CommunityService {
     });
   }
 
+  listAutoNamedCommunitiesBasic() {
+    return this.prisma.community.findMany({
+      where: { nameSource: CommunityNameSource.AUTO },
+      select: { telegramChatId: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
   findByTelegramChatId(telegramChatId: bigint) {
     return this.prisma.community
       .findUnique({
@@ -112,6 +125,7 @@ export class CommunityService {
   async createWithFirstResource(params: {
     telegramChatId: bigint;
     name: string;
+    nameSource?: CommunityNameSource;
     address?: string | null;
     timeZone: string;
     slotStartHour: number;
@@ -125,6 +139,7 @@ export class CommunityService {
           data: {
             telegramChatId: params.telegramChatId,
             name: params.name,
+            nameSource: params.nameSource ?? CommunityNameSource.AUTO,
           },
         });
         const resource = await tx.resource.create({
@@ -174,6 +189,7 @@ export class CommunityService {
   async createOrUpdateFromSetup(params: {
     telegramChatId: bigint;
     name: string;
+    nameSource?: CommunityNameSource;
     address?: string | null;
     timeZone: string;
     slotStartHour: number;
@@ -207,7 +223,12 @@ export class CommunityService {
         const community = await tx.community.update({
           where: { id: existing.id },
           data: {
-            ...(updateCommunityName ? { name: params.name } : {}),
+            ...(updateCommunityName
+              ? {
+                  name: params.name,
+                  nameSource: params.nameSource ?? CommunityNameSource.AUTO,
+                }
+              : {}),
           },
         });
         const resource = await tx.resource.create({
@@ -251,7 +272,12 @@ export class CommunityService {
       const community = await tx.community.update({
         where: { id: existing.id },
         data: {
-          ...(updateCommunityName ? { name: params.name } : {}),
+          ...(updateCommunityName
+            ? {
+                name: params.name,
+                nameSource: params.nameSource ?? CommunityNameSource.AUTO,
+              }
+            : {}),
         },
       });
 
@@ -304,6 +330,24 @@ export class CommunityService {
         params.slotEndHour,
       );
       return { community, resource };
+    });
+  }
+
+  async syncAutoCommunityNameWithChatTitle(params: {
+    telegramChatId: bigint;
+    chatTitle: string;
+  }): Promise<void> {
+    const chatTitle = params.chatTitle.trim();
+    if (!chatTitle) {
+      return;
+    }
+    await this.prisma.community.updateMany({
+      where: {
+        telegramChatId: params.telegramChatId,
+        nameSource: CommunityNameSource.AUTO,
+        name: { not: chatTitle },
+      },
+      data: { name: chatTitle },
     });
   }
 
