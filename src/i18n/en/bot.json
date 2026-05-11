@@ -173,7 +173,6 @@
     "whPerDayStartPrompt": "{day}: choose slot start time (nearest allowed slot start).",
     "whPerDayEndPrompt": "{day}: what end time should everything finish (opening: {hour}:00)?",
     "whPerDaySaved": "Saved: {day} — slots from {start}:00. Pick another day or «{done}».",
-    "continueInDmOnly": "Continue setup in private messages with me — replies are not shown in the group.",
     "openSetupFailedFromGroup": "Could not open settings. Try again from the group: /setup.",
     "openSetupFailedRetry": "Could not open settings. Please try again.",
     "chatTitleFallback": "Chat",

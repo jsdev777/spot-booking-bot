@@ -144,6 +144,193 @@ describe('BookingService daily limit by resource', () => {
     expect(slots.some((s) => s.hour === 8 && s.minute === 0)).toBe(false);
   });
 
+  it('omits :30 start slots when daily cap is 60 minutes for that weekday', async () => {
+    const prisma = {
+      booking: { findMany: jest.fn().mockResolvedValue([]) },
+      communityResourceUserBookingLimit: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ weekday: 1, maxMinutes: 60 }]),
+      },
+    };
+    const resources = {
+      findByIdForChat: jest.fn().mockResolvedValue({
+        id: 'resource-a',
+        name: 'resource-a',
+        timeZone: 'UTC',
+        workingHours: [
+          { weekday: 1, isClosed: false, slotStartHour: 8, slotEndHour: 21 },
+        ],
+        community: {
+          bookingWindowTimeZone: 'UTC',
+          bookingWindowStartHour: 0,
+          bookingWindowEndHour: 24,
+        },
+        communityResourceId: 'cr-resource-a',
+      }),
+    };
+    const recurringBookings = {
+      listRuleOccurrencesForDay: jest.fn().mockResolvedValue([]),
+    };
+    const metrics = { observeBookingSlotsBuildDuration: jest.fn() };
+    const svc = new BookingService(
+      prisma as never,
+      resources as never,
+      recurringBookings as never,
+      metrics as never,
+      { t: () => '' } as never,
+    );
+    const slots = await svc.getAvailableStartSlots({
+      resourceId: 'resource-a',
+      telegramChatId: 1n,
+      dayOffset: 0,
+      now: new Date('2026-04-06T06:00:00Z'),
+      telegramGroupAdmin: false,
+      telegramUserId: 10,
+    });
+    expect(slots.some((s) => s.hour === 8 && s.minute === 0)).toBe(true);
+    expect(slots.some((s) => s.hour === 8 && s.minute === 30)).toBe(false);
+  });
+
+  it('keeps :30 start slots when daily cap is not 60 minutes', async () => {
+    const prisma = {
+      booking: { findMany: jest.fn().mockResolvedValue([]) },
+      communityResourceUserBookingLimit: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ weekday: 1, maxMinutes: 90 }]),
+      },
+    };
+    const resources = {
+      findByIdForChat: jest.fn().mockResolvedValue({
+        id: 'resource-a',
+        name: 'resource-a',
+        timeZone: 'UTC',
+        workingHours: [
+          { weekday: 1, isClosed: false, slotStartHour: 8, slotEndHour: 21 },
+        ],
+        community: {
+          bookingWindowTimeZone: 'UTC',
+          bookingWindowStartHour: 0,
+          bookingWindowEndHour: 24,
+        },
+        communityResourceId: 'cr-resource-a',
+      }),
+    };
+    const recurringBookings = {
+      listRuleOccurrencesForDay: jest.fn().mockResolvedValue([]),
+    };
+    const metrics = { observeBookingSlotsBuildDuration: jest.fn() };
+    const svc = new BookingService(
+      prisma as never,
+      resources as never,
+      recurringBookings as never,
+      metrics as never,
+      { t: () => '' } as never,
+    );
+    const slots = await svc.getAvailableStartSlots({
+      resourceId: 'resource-a',
+      telegramChatId: 1n,
+      dayOffset: 0,
+      now: new Date('2026-04-06T06:00:00Z'),
+      telegramGroupAdmin: false,
+      telegramUserId: 10,
+    });
+    expect(slots.some((s) => s.hour === 8 && s.minute === 30)).toBe(true);
+  });
+
+  it('returns configured daily cap minutes for the booking day', async () => {
+    const prisma = {
+      booking: { findMany: jest.fn().mockResolvedValue([]) },
+      communityResourceUserBookingLimit: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ weekday: 1, maxMinutes: 60 }]),
+      },
+    };
+    const resources = {
+      findByIdForChat: jest.fn().mockResolvedValue({
+        id: 'resource-a',
+        name: 'resource-a',
+        timeZone: 'UTC',
+        workingHours: [
+          { weekday: 1, isClosed: false, slotStartHour: 8, slotEndHour: 21 },
+        ],
+        community: {
+          bookingWindowTimeZone: 'UTC',
+          bookingWindowStartHour: 0,
+          bookingWindowEndHour: 24,
+        },
+        communityResourceId: 'cr-resource-a',
+      }),
+    };
+    const recurringBookings = {
+      listRuleOccurrencesForDay: jest.fn().mockResolvedValue([]),
+    };
+    const svc = new BookingService(
+      prisma as never,
+      resources as never,
+      recurringBookings as never,
+      { observeBookingSlotsBuildDuration: jest.fn() } as never,
+      { t: () => '' } as never,
+    );
+    const cap = await svc.getConfiguredDailyBookingLimitCapMinutes({
+      resourceId: 'resource-a',
+      telegramChatId: 1n,
+      dayOffset: 0,
+      now: new Date('2026-04-06T12:00:00Z'),
+      telegramGroupAdmin: false,
+    });
+    expect(cap).toBe(60);
+  });
+
+  it('keeps :30 for group admin even when daily cap is 60 minutes', async () => {
+    const prisma = {
+      booking: { findMany: jest.fn().mockResolvedValue([]) },
+      communityResourceUserBookingLimit: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ weekday: 1, maxMinutes: 60 }]),
+      },
+    };
+    const resources = {
+      findByIdForChat: jest.fn().mockResolvedValue({
+        id: 'resource-a',
+        name: 'resource-a',
+        timeZone: 'UTC',
+        workingHours: [
+          { weekday: 1, isClosed: false, slotStartHour: 8, slotEndHour: 21 },
+        ],
+        community: {
+          bookingWindowTimeZone: 'UTC',
+          bookingWindowStartHour: 0,
+          bookingWindowEndHour: 24,
+        },
+        communityResourceId: 'cr-resource-a',
+      }),
+    };
+    const recurringBookings = {
+      listRuleOccurrencesForDay: jest.fn().mockResolvedValue([]),
+    };
+    const metrics = { observeBookingSlotsBuildDuration: jest.fn() };
+    const svc = new BookingService(
+      prisma as never,
+      resources as never,
+      recurringBookings as never,
+      metrics as never,
+      { t: () => '' } as never,
+    );
+    const slots = await svc.getAvailableStartSlots({
+      resourceId: 'resource-a',
+      telegramChatId: 1n,
+      dayOffset: 0,
+      now: new Date('2026-04-06T06:00:00Z'),
+      telegramGroupAdmin: true,
+      telegramUserId: 10,
+    });
+    expect(slots.some((s) => s.hour === 8 && s.minute === 30)).toBe(true);
+  });
+
   it('throws SlotTakenError when creating booking over recurring rule', async () => {
     const tx = {
       booking: {

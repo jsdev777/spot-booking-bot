@@ -1338,6 +1338,7 @@ export class BotUpdate {
           telegramChatId: chatId,
           dayOffset: s.dayOffset,
           telegramGroupAdmin: admin,
+          telegramUserId: ctx.from?.id,
         });
         if (starts.length === 0) {
           this.resetMenuState(ctx);
@@ -1369,6 +1370,7 @@ export class BotUpdate {
           telegramChatId: chatId,
           dayOffset: s.dayOffset,
           telegramGroupAdmin: admin,
+          telegramUserId: ctx.from?.id,
         });
         if (starts.length === 0) {
           this.resetMenuState(ctx);
@@ -1398,6 +1400,36 @@ export class BotUpdate {
           await ctx.reply(
             this.botT(this.kb().lang, 'book.noMatchingDuration'),
             this.dayPickReplyMarkup(),
+          );
+          return;
+        }
+        if (
+          await this.bookingSkipsDurationOneHourDailyLimit(
+            ctx,
+            chatId,
+            admin,
+            {
+              resourceId: s.resourceId,
+              dayOffset: s.dayOffset,
+              hour: s.hour,
+              startMinute: s.startMinute,
+            },
+            durs,
+          )
+        ) {
+          this.setMenuState(ctx, {
+            t: 'book_hour',
+            resourceId: s.resourceId,
+            dayOffset: s.dayOffset,
+            ...(s.sportKindCode !== undefined
+              ? { sportKindCode: s.sportKindCode }
+              : {}),
+          });
+          await ctx.reply(
+            s.dayOffset === 0
+              ? this.botT(this.kb().lang, 'book.pickStartToday')
+              : this.botT(this.kb().lang, 'book.pickStartTomorrow'),
+            this.hoursPickReplyMarkup(starts),
           );
           return;
         }
@@ -1817,6 +1849,7 @@ export class BotUpdate {
       telegramChatId: chatId,
       dayOffset: params.dayOffset,
       telegramGroupAdmin: admin,
+      telegramUserId: ctx.from?.id,
     });
     if (starts.length === 0) {
       this.resetMenuState(ctx);
@@ -1863,6 +1896,33 @@ export class BotUpdate {
     });
   }
 
+  /**
+   * One-hour daily cap: only 60m fits and is allowed — skip duration picker (forward and back from «looking»).
+   */
+  private async bookingSkipsDurationOneHourDailyLimit(
+    ctx: Context,
+    chatId: bigint,
+    admin: boolean,
+    p: {
+      resourceId: string;
+      dayOffset: 0 | 1;
+      hour: number;
+      startMinute: number;
+    },
+    durs: BookingDurationMinutes[],
+  ): Promise<boolean> {
+    if (admin || !ctx.from || durs.length !== 1 || durs[0] !== 60) {
+      return false;
+    }
+    const cap = await this.booking.getConfiguredDailyBookingLimitCapMinutes({
+      resourceId: p.resourceId,
+      telegramChatId: chatId,
+      dayOffset: p.dayOffset,
+      telegramGroupAdmin: admin,
+    });
+    return cap === 60;
+  }
+
   private async handleBookHourPick(
     ctx: Context,
     text: string,
@@ -1884,6 +1944,7 @@ export class BotUpdate {
       telegramChatId: chatId,
       dayOffset: state.dayOffset,
       telegramGroupAdmin: admin,
+      telegramUserId: ctx.from?.id,
     });
     const picked = starts.find(
       (s) => s.hour === hour && s.minute === startMinute,
@@ -1912,6 +1973,37 @@ export class BotUpdate {
       await ctx.reply(
         this.botT(this.kb().lang, 'book.noDurationForThisSlot'),
         this.dayPickReplyMarkup(),
+      );
+      return;
+    }
+    if (
+      await this.bookingSkipsDurationOneHourDailyLimit(
+        ctx,
+        chatId,
+        admin,
+        {
+          resourceId: state.resourceId,
+          dayOffset: state.dayOffset,
+          hour,
+          startMinute,
+        },
+        durs,
+      )
+    ) {
+      this.setMenuState(ctx, {
+        t: 'book_looking',
+        resourceId: state.resourceId,
+        dayOffset: state.dayOffset,
+        hour,
+        startMinute,
+        durationMinutes: 60,
+        ...(state.sportKindCode !== undefined
+          ? { sportKindCode: state.sportKindCode }
+          : {}),
+      });
+      await ctx.reply(
+        this.botT(this.kb().lang, 'book.askLookingForPartners'),
+        this.lookingForPlayersReplyMarkup(),
       );
       return;
     }
@@ -2021,6 +2113,7 @@ export class BotUpdate {
           telegramChatId: chatId,
           dayOffset: flow.dayOffset,
           telegramGroupAdmin: admin,
+          telegramUserId: ctx.from?.id,
         });
         if (starts.length === 0) {
           this.resetMenuState(ctx);
@@ -3310,7 +3403,6 @@ export class BotUpdate {
           isGroupChat(ctx) &&
           this.setupBridgeGroupByUser.get(from.id) === String(ctx.chat!.id)
         ) {
-          await ctx.reply(this.botT(this.kb().lang, 'setup.continueInDmOnly'));
           return;
         }
         this.setupDrafts.delete(this.sk(ctx));
