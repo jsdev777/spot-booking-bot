@@ -352,9 +352,45 @@ export class BookingService {
     };
   }
 
+  private async configuredDailyBookingLimitCapForLoadedDay(
+    ctx: LoadedResourceDayBookings,
+  ): Promise<number | null> {
+    const isoWeekday = isoWeekdayInTimeZone(ctx.localDay, ctx.timeZone);
+    const limits =
+      await this.prisma.communityResourceUserBookingLimit.findMany({
+        where: { communityResourceId: ctx.res.communityResourceId },
+      });
+    return limits.find((l) => l.weekday === isoWeekday)?.maxMinutes ?? null;
+  }
+
   /**
-   * Start times (:00 and :30) where at least one duration (1 / 1.5 / 2 hours)
-   * fits within the working window and does not overlap with reservations.
+   * Configured `maxMinutes` for the venue's weekday on the selected calendar day (`dayOffset`), or `null` if unlimited / no row.
+   */
+  async getConfiguredDailyBookingLimitCapMinutes(params: {
+    resourceId: string;
+    telegramChatId: bigint;
+    dayOffset: number;
+    now?: Date;
+    telegramGroupAdmin?: boolean;
+  }): Promise<number | null> {
+    let ctx: LoadedResourceDayBookings | null = null;
+    try {
+      ctx = await this.loadResourceDayBookings(params);
+    } catch (e) {
+      if (e instanceof BookingWindowClosedError) {
+        return null;
+      }
+      throw e;
+    }
+    if (!ctx || ctx.dayClosed) {
+      return null;
+    }
+    return this.configuredDailyBookingLimitCapForLoadedDay(ctx);
+  }
+
+  /**
+   * Start times (:00 and :30, or only :00 when the per-user daily cap for that weekday is 60 minutes)
+   * where at least one duration (1 / 1.5 / 2 hours) fits within the working window and does not overlap with reservations.
    */
   async getAvailableStartSlots(params: {
     resourceId: string;
@@ -363,6 +399,8 @@ export class BookingService {
     now?: Date;
     /** Telegram group admin/creator — outside the booking_window_* window in communities. */
     telegramGroupAdmin?: boolean;
+    /** When set and not admin, a 60-minute daily cap uses hourly starts only (:00). */
+    telegramUserId?: number;
   }): Promise<BookingStartSlot[]> {
     const startedAtMs = Date.now();
     let ctx: LoadedResourceDayBookings | null = null;
@@ -392,9 +430,17 @@ export class BookingService {
     } = ctx;
     const now = params.now ?? new Date();
 
+    let slotMinutes: readonly [number, ...number[]] = [0, 30];
+    if (!params.telegramGroupAdmin && params.telegramUserId != null) {
+      const cap = await this.configuredDailyBookingLimitCapForLoadedDay(ctx);
+      if (cap === 60) {
+        slotMinutes = [0];
+      }
+    }
+
     const result: BookingStartSlot[] = [];
     for (let h = slotStartHour; h <= slotEndHour; h++) {
-      for (const m of [0, 30] as const) {
+      for (const m of slotMinutes) {
         if (!isStartSlotBookable(h, m, slotStartHour, slotEndHour)) {
           continue;
         }
