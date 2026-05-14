@@ -6695,19 +6695,8 @@ export class BotUpdate {
     const extra = {
       reply_markup: { inline_keyboard: rows },
     };
-    try {
-      await telegram.sendMessage(targetUserId, intro, extra);
-      return { usedDm: true };
-    } catch (e) {
-      if (opts?.allowGroupFallback === false) {
-        throw e;
-      }
-      this.logger.warn(
-        `language picker DM failed user=${targetUserId}, fallback to group: ${e instanceof Error ? e.message : String(e)}`,
-      );
-      await telegram.sendMessage(Number(groupChatId), intro, extra);
-      return { usedDm: false };
-    }
+    await telegram.sendMessage(targetUserId, intro, extra);
+    return { usedDm: true };
   }
 
   /**
