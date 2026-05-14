@@ -84,7 +84,9 @@ export class RecurringBookingService {
         resourceId: params.resourceId,
         weekday: params.weekday,
         endDate: { gte: today },
-        startMinuteOfDay: { lt: params.startMinuteOfDay + params.durationMinutes },
+        startMinuteOfDay: {
+          lt: params.startMinuteOfDay + params.durationMinutes,
+        },
       },
       select: {
         id: true,
@@ -164,7 +166,9 @@ export class RecurringBookingService {
     windowStartUtc: Date;
     maxEndUtc: Date;
   }): Promise<RecurringBookingOccurrence[]> {
-    const weekday = Number(formatInTimeZone(params.localDay, params.timeZone, 'i'));
+    const weekday = Number(
+      formatInTimeZone(params.localDay, params.timeZone, 'i'),
+    );
     const localDayDate = formatInTimeZone(
       params.localDay,
       params.timeZone,

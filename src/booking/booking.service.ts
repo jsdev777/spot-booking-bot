@@ -150,10 +150,15 @@ export class BookingService {
     start: Date,
     end: Date,
     bookings: Pick<DayBookingWithSport, 'startTime' | 'endTime'>[],
-    recurringOccurrences: Pick<RecurringBookingOccurrence, 'startTime' | 'endTime'>[],
+    recurringOccurrences: Pick<
+      RecurringBookingOccurrence,
+      'startTime' | 'endTime'
+    >[],
   ): boolean {
     return (
-      bookings.some((b) => intervalsOverlap(start, end, b.startTime, b.endTime)) ||
+      bookings.some((b) =>
+        intervalsOverlap(start, end, b.startTime, b.endTime),
+      ) ||
       recurringOccurrences.some((r) =>
         intervalsOverlap(start, end, r.startTime, r.endTime),
       )
@@ -356,10 +361,11 @@ export class BookingService {
     ctx: LoadedResourceDayBookings,
   ): Promise<number | null> {
     const isoWeekday = isoWeekdayInTimeZone(ctx.localDay, ctx.timeZone);
-    const limits =
-      await this.prisma.communityResourceUserBookingLimit.findMany({
+    const limits = await this.prisma.communityResourceUserBookingLimit.findMany(
+      {
         where: { communityResourceId: ctx.res.communityResourceId },
-      });
+      },
+    );
     return limits.find((l) => l.weekday === isoWeekday)?.maxMinutes ?? null;
   }
 

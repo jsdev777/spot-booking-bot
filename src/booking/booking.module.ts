@@ -6,7 +6,11 @@ import { RecurringBookingService } from './recurring-booking.service';
 
 @Module({
   imports: [CommunityModule],
-  providers: [BookingService, BookingStatusCronService, RecurringBookingService],
+  providers: [
+    BookingService,
+    BookingStatusCronService,
+    RecurringBookingService,
+  ],
   exports: [BookingService, RecurringBookingService],
 })
 export class BookingModule {}
