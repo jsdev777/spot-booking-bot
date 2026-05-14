@@ -33,7 +33,7 @@ describe('BookingService daily limit by resource', () => {
         Promise.resolve({
           id: resourceId,
           name: resourceId,
-        timeZone: 'UTC',
+          timeZone: 'UTC',
           workingHours: [
             {
               weekday: 1,
@@ -148,9 +148,7 @@ describe('BookingService daily limit by resource', () => {
     const prisma = {
       booking: { findMany: jest.fn().mockResolvedValue([]) },
       communityResourceUserBookingLimit: {
-        findMany: jest
-          .fn()
-          .mockResolvedValue([{ weekday: 1, maxMinutes: 60 }]),
+        findMany: jest.fn().mockResolvedValue([{ weekday: 1, maxMinutes: 60 }]),
       },
     };
     const resources = {
@@ -196,9 +194,7 @@ describe('BookingService daily limit by resource', () => {
     const prisma = {
       booking: { findMany: jest.fn().mockResolvedValue([]) },
       communityResourceUserBookingLimit: {
-        findMany: jest
-          .fn()
-          .mockResolvedValue([{ weekday: 1, maxMinutes: 90 }]),
+        findMany: jest.fn().mockResolvedValue([{ weekday: 1, maxMinutes: 90 }]),
       },
     };
     const resources = {
@@ -243,9 +239,7 @@ describe('BookingService daily limit by resource', () => {
     const prisma = {
       booking: { findMany: jest.fn().mockResolvedValue([]) },
       communityResourceUserBookingLimit: {
-        findMany: jest
-          .fn()
-          .mockResolvedValue([{ weekday: 1, maxMinutes: 60 }]),
+        findMany: jest.fn().mockResolvedValue([{ weekday: 1, maxMinutes: 60 }]),
       },
     };
     const resources = {
@@ -288,9 +282,7 @@ describe('BookingService daily limit by resource', () => {
     const prisma = {
       booking: { findMany: jest.fn().mockResolvedValue([]) },
       communityResourceUserBookingLimit: {
-        findMany: jest
-          .fn()
-          .mockResolvedValue([{ weekday: 1, maxMinutes: 60 }]),
+        findMany: jest.fn().mockResolvedValue([{ weekday: 1, maxMinutes: 60 }]),
       },
     };
     const resources = {
@@ -339,9 +331,13 @@ describe('BookingService daily limit by resource', () => {
       },
     };
     const prisma = {
-      communityResourceUserBookingLimit: { findMany: jest.fn().mockResolvedValue([]) },
+      communityResourceUserBookingLimit: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       booking: { findMany: jest.fn().mockResolvedValue([]) },
-      $transaction: jest.fn().mockImplementation((cb: (arg: unknown) => unknown) => cb(tx)),
+      $transaction: jest
+        .fn()
+        .mockImplementation((cb: (arg: unknown) => unknown) => cb(tx)),
     };
     const resources = {
       findByIdForChat: jest.fn().mockResolvedValue({

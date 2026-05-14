@@ -18,7 +18,9 @@ export class CommunityNameSyncCronService {
     const rows = await this.community.listAutoNamedCommunitiesBasic();
     for (const row of rows) {
       try {
-        const chat = await this.bot.telegram.getChat(row.telegramChatId.toString());
+        const chat = await this.bot.telegram.getChat(
+          row.telegramChatId.toString(),
+        );
         if (!('title' in chat) || !chat.title?.trim()) {
           continue;
         }

@@ -3352,9 +3352,7 @@ export class BotUpdate {
             return;
           }
           try {
-            await this.sendLanguagePickerMessages(ctx.telegram, gid, from.id, {
-              allowGroupFallback: true,
-            });
+            await this.sendLanguagePickerMessages(ctx.telegram, gid, from.id);
           } catch (e) {
             this.logger.warn(
               `DM change language picker: ${e instanceof Error ? e.message : String(e)}`,
@@ -4382,7 +4380,8 @@ export class BotUpdate {
       return true;
     }
     const pickedResource = list.find((r) => r.id === resourceId);
-    const resourceName = pickedResource?.name ?? this.botT(this.kb().lang, 'common.emDash');
+    const resourceName =
+      pickedResource?.name ?? this.botT(this.kb().lang, 'common.emDash');
     if (sub === 'recurring_pick_action') {
       if (text === this.kb().menuBack) {
         draft.venuesSubstep = 'recurring_pick_resource';
@@ -4410,10 +4409,11 @@ export class BotUpdate {
         return true;
       }
       if (text === this.kb().setupRecurringDelete) {
-        const rules = await this.recurringBookings.listRulesForCommunityResource({
-          telegramChatId: targetGroupChatId,
-          resourceId,
-        });
+        const rules =
+          await this.recurringBookings.listRulesForCommunityResource({
+            telegramChatId: targetGroupChatId,
+            resourceId,
+          });
         if (rules.length === 0) {
           await this.sendSetupDm(
             ctx,
@@ -4491,7 +4491,9 @@ export class BotUpdate {
         );
         return true;
       }
-      const weekdayIdx = this.whIsoLabels().findIndex((dayLabel) => dayLabel === text);
+      const weekdayIdx = this.whIsoLabels().findIndex(
+        (dayLabel) => dayLabel === text,
+      );
       if (weekdayIdx < 0) {
         await this.sendSetupDm(
           ctx,
@@ -4625,13 +4627,14 @@ export class BotUpdate {
         await toHub();
         return true;
       }
-      const fitsWorkingHours = await this.validateRecurringSlotAgainstWorkingHours({
-        telegramChatId: targetGroupChatId,
-        resourceId,
-        weekday,
-        startMinuteOfDay: startMinute,
-        durationMinutes: duration,
-      });
+      const fitsWorkingHours =
+        await this.validateRecurringSlotAgainstWorkingHours({
+          telegramChatId: targetGroupChatId,
+          resourceId,
+          weekday,
+          startMinuteOfDay: startMinute,
+          durationMinutes: duration,
+        });
       if (!fitsWorkingHours) {
         await this.sendSetupDm(
           ctx,
@@ -6673,8 +6676,7 @@ export class BotUpdate {
     telegram: Context['telegram'],
     groupChatId: bigint,
     targetUserId: number,
-    opts?: { allowGroupFallback?: boolean },
-  ): Promise<{ usedDm: boolean }> {
+  ): Promise<void> {
     const langs = await this.telegramMembers.listLanguagesForPicker();
     const groupStr = groupChatId.toString();
     const rows = langs.map((l) => [
@@ -6695,19 +6697,7 @@ export class BotUpdate {
     const extra = {
       reply_markup: { inline_keyboard: rows },
     };
-    try {
-      await telegram.sendMessage(targetUserId, intro, extra);
-      return { usedDm: true };
-    } catch (e) {
-      if (opts?.allowGroupFallback === false) {
-        throw e;
-      }
-      this.logger.warn(
-        `language picker DM failed user=${targetUserId}, fallback to group: ${e instanceof Error ? e.message : String(e)}`,
-      );
-      await telegram.sendMessage(Number(groupChatId), intro, extra);
-      return { usedDm: false };
-    }
+    await telegram.sendMessage(targetUserId, intro, extra);
   }
 
   /**
@@ -6737,7 +6727,6 @@ export class BotUpdate {
           ctx.telegram,
           groupChatId,
           ctx.from.id,
-          { allowGroupFallback: true },
         );
       } catch (e) {
         this.logger.warn(
@@ -6851,32 +6840,25 @@ export class BotUpdate {
         const memberLbl = await this.labelsForUserInGroup(chatId, u.id);
         if (joinResult.pendingLanguageSelection) {
           try {
-            const { usedDm } = await this.sendLanguagePickerMessages(
-              ctx.telegram,
-              chatId,
-              u.id,
-              { allowGroupFallback: true },
-            );
-            if (usedDm) {
-              try {
-                const sent = await ctx.telegram.sendMessage(
-                  chat.id,
-                  this.botT(
-                    UI_LANGUAGE_PROMPT_NEUTRAL_LANG,
-                    'rules.chooseLanguageInDm',
-                  ),
-                );
-                this.deleteMessageLater(
-                  ctx.telegram,
-                  Number(chat.id),
-                  sent.message_id,
-                  5000,
-                );
-              } catch (e) {
-                this.logger.warn(
-                  `chat_member language ping: ${e instanceof Error ? e.message : String(e)}`,
-                );
-              }
+            await this.sendLanguagePickerMessages(ctx.telegram, chatId, u.id);
+            try {
+              const sent = await ctx.telegram.sendMessage(
+                chat.id,
+                this.botT(
+                  UI_LANGUAGE_PROMPT_NEUTRAL_LANG,
+                  'rules.chooseLanguageInDm',
+                ),
+              );
+              this.deleteMessageLater(
+                ctx.telegram,
+                Number(chat.id),
+                sent.message_id,
+                5000,
+              );
+            } catch (e) {
+              this.logger.warn(
+                `chat_member language ping: ${e instanceof Error ? e.message : String(e)}`,
+              );
             }
           } catch (e) {
             this.logger.warn(
@@ -6984,31 +6966,28 @@ export class BotUpdate {
     if (nu.status === 'administrator') {
       if (actorId != null && actorEffLang == null) {
         try {
-          const { usedDm } = await this.sendLanguagePickerMessages(
+          await this.sendLanguagePickerMessages(
             ctx.telegram,
             groupChatId,
             actorId,
-            { allowGroupFallback: true },
           );
-          if (usedDm) {
-            try {
-              const sent = await ctx.reply(
-                this.botT(
-                  UI_LANGUAGE_PROMPT_NEUTRAL_LANG,
-                  'rules.chooseLanguageInDm',
-                ),
-              );
-              this.deleteMessageLater(
-                ctx.telegram,
-                Number(ctx.chat.id),
-                sent.message_id,
-                5000,
-              );
-            } catch (e) {
-              this.logger.warn(
-                `my_chat_member language ping: ${e instanceof Error ? e.message : String(e)}`,
-              );
-            }
+          try {
+            const sent = await ctx.reply(
+              this.botT(
+                UI_LANGUAGE_PROMPT_NEUTRAL_LANG,
+                'rules.chooseLanguageInDm',
+              ),
+            );
+            this.deleteMessageLater(
+              ctx.telegram,
+              Number(ctx.chat.id),
+              sent.message_id,
+              5000,
+            );
+          } catch (e) {
+            this.logger.warn(
+              `my_chat_member language ping: ${e instanceof Error ? e.message : String(e)}`,
+            );
           }
         } catch (e) {
           this.logger.warn(
