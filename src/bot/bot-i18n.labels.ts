@@ -30,6 +30,7 @@ export function createBotLabels(
     lang,
     menuBook: t('menu.book'),
     menuList: t('menu.list'),
+    menuListFindPlayers: t('menu.listFindPlayers'),
     menuGrid: t('menu.grid'),
     menuFreeSlots: t('menu.freeSlots'),
     menuSetup: t('menu.setup'),

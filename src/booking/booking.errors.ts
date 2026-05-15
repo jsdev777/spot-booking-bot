@@ -12,6 +12,25 @@ export class BookingNotFoundError extends Error {
   }
 }
 
+/** Booking already has an active partner search listing. */
+export class LookingAlreadyEnabledError extends Error {
+  constructor() {
+    super('Partner search is already enabled for this booking');
+    this.name = 'LookingAlreadyEnabledError';
+  }
+}
+
+/** Target partner count is below how many have already joined via player search. */
+export class LookingTargetBelowJoinedError extends Error {
+  readonly joinedCount: number;
+
+  constructor(joinedCount: number) {
+    super('Target partner count is below joined participants');
+    this.name = 'LookingTargetBelowJoinedError';
+    this.joinedCount = joinedCount;
+  }
+}
+
 export class SlotInPastError extends Error {
   constructor() {
     super('Slot start is in the past');

@@ -15,6 +15,7 @@ import { RecurringBookingService } from '../booking/recurring-booking.service';
 import {
   BookingNotFoundError,
   BookingWindowClosedError,
+  LookingTargetBelowJoinedError,
   SlotInPastError,
   SlotTakenError,
   UserDailyBookingLimitExceededError,
@@ -43,6 +44,11 @@ import {
   UI_FALLBACK_LANGUAGE,
   UI_LANGUAGE_PROMPT_NEUTRAL_LANG,
 } from '../i18n/resolve-ui-lang';
+import {
+  buildLookingLeaveCallbackData,
+  LOOKING_LEAVE_CALLBACK_RE,
+  parseLookingLeaveCallback,
+} from './looking-leave-callback';
 import {
   parseUserlangCallback,
   USERLANG_CALLBACK_RE,
@@ -1090,12 +1096,106 @@ export class BotUpdate {
       timeZone: string;
       resourceName: string;
     }[],
+    opts?: { includeFindPlayers?: boolean },
   ) {
     const lbl = this.kb();
     const labels = items.map((it) => this.buildListBookingButtonLabel(it));
     const rows = labels.map((label) => [label]);
+    if (opts?.includeFindPlayers !== false) {
+      rows.push([lbl.menuListFindPlayers]);
+    }
     rows.push([lbl.menuBack, lbl.menuMain]);
     return Markup.keyboard(rows).resize().persistent(true);
+  }
+
+  private listLookingPickReplyMarkup(
+    items: {
+      startTime: Date;
+      endTime: Date;
+      timeZone: string;
+      resourceName: string;
+    }[],
+  ) {
+    const lbl = this.kb();
+    const labels = items.map((it) =>
+      this.buildListBookingButtonLabel(it, { includeCancelSuffix: false }),
+    );
+    const rows = labels.map((label) => [label]);
+    rows.push([lbl.menuBack, lbl.menuMain]);
+    return Markup.keyboard(rows).resize().persistent(true);
+  }
+
+  private async showMyBookingsList(ctx: Context, chatId: bigint): Promise<void> {
+    const rows = await this.booking.listMyBookingsNotFinishedOrCancelled({
+      telegramChatId: chatId,
+      telegramUserId: ctx.from!.id,
+    });
+    if (rows.length === 0) {
+      await ctx.reply(
+        this.botT(this.kb().lang, 'book.myBookingsEmpty'),
+        await this.mainMenuReplyMarkup(ctx),
+      );
+      return;
+    }
+    const listItems = rows.map((r) => ({
+      startTime: r.startTime,
+      endTime: r.endTime,
+      timeZone: r.resource.timeZone,
+      resourceName: r.resource.name,
+    }));
+    const rowLabels = listItems.map((item) =>
+      this.buildListBookingButtonLabel(item),
+    );
+    this.setMenuState(ctx, {
+      t: 'list',
+      bookingIds: rows.map((r) => r.id),
+      rowLabels,
+    });
+    const intro = this.botT(this.kb().lang, 'book.myBookingsIntro');
+    const listText = listItems
+      .map((item) =>
+        this.buildListBookingButtonLabel(item, {
+          includeCancelSuffix: false,
+        }),
+      )
+      .join('\n');
+    await ctx.reply(
+      `${intro}\n\n${listText}`,
+      this.listBookingsReplyMarkup(listItems),
+    );
+  }
+
+  private async openListLookingPick(ctx: Context, chatId: bigint): Promise<void> {
+    const rows = await this.booking.listMyBookingsEligibleToAdjustLooking({
+      telegramChatId: chatId,
+      telegramUserId: ctx.from!.id,
+    });
+    if (rows.length === 0) {
+      await ctx.reply(
+        this.botT(this.kb().lang, 'book.myBookingsFindPlayersEmpty'),
+      );
+      return;
+    }
+    const listItems = rows.map((r) => ({
+      startTime: r.startTime,
+      endTime: r.endTime,
+      timeZone: r.resource.timeZone,
+      resourceName: r.resource.name,
+    }));
+    const rowLabels = listItems.map((item) =>
+      this.buildListBookingButtonLabel(item, { includeCancelSuffix: false }),
+    );
+    this.setMenuState(ctx, {
+      t: 'list_looking_pick',
+      bookingIds: rows.map((r) => r.id),
+      rowLabels,
+    });
+    const intro = this.botT(this.kb().lang, 'book.myBookingsFindPlayersIntro');
+    const listText = rowLabels.join('\n');
+    await ctx.reply(
+      `${intro}\n\n${listText}`,
+      this.listLookingPickReplyMarkup(listItems),
+    );
   }
 
   private freeSlotsReplyMarkup(
@@ -1497,6 +1597,22 @@ export class BotUpdate {
         }
         return;
       }
+      case 'list_looking_players': {
+        const chatIdBack = await this.resolveActiveGroupChatId(ctx);
+        if (chatIdBack == null) {
+          return;
+        }
+        await this.openListLookingPick(ctx, chatIdBack);
+        return;
+      }
+      case 'list_looking_pick': {
+        const chatIdBack = await this.resolveActiveGroupChatId(ctx);
+        if (chatIdBack == null) {
+          return;
+        }
+        await this.showMyBookingsList(ctx, chatIdBack);
+        return;
+      }
       case 'list':
       case 'free_slots':
         this.resetMenuState(ctx);
@@ -1592,43 +1708,7 @@ export class BotUpdate {
     }
 
     if (text === this.kb().menuList) {
-      const rows = await this.booking.listMyBookingsNotFinishedOrCancelled({
-        telegramChatId: chatId,
-        telegramUserId: ctx.from!.id,
-      });
-      if (rows.length === 0) {
-        await ctx.reply(
-          this.botT(this.kb().lang, 'book.myBookingsEmpty'),
-          await this.mainMenuReplyMarkup(ctx),
-        );
-        return;
-      }
-      const listItems = rows.map((r) => ({
-        startTime: r.startTime,
-        endTime: r.endTime,
-        timeZone: r.resource.timeZone,
-        resourceName: r.resource.name,
-      }));
-      const rowLabels = listItems.map((item) =>
-        this.buildListBookingButtonLabel(item),
-      );
-      this.setMenuState(ctx, {
-        t: 'list',
-        bookingIds: rows.map((r) => r.id),
-        rowLabels,
-      });
-      const intro = this.botT(this.kb().lang, 'book.myBookingsIntro');
-      const listText = listItems
-        .map((item) =>
-          this.buildListBookingButtonLabel(item, {
-            includeCancelSuffix: false,
-          }),
-        )
-        .join('\n');
-      await ctx.reply(
-        `${intro}\n\n${listText}`,
-        this.listBookingsReplyMarkup(listItems),
-      );
+      await this.showMyBookingsList(ctx, chatId);
       return;
     }
 
@@ -2429,6 +2509,155 @@ export class BotUpdate {
     );
   }
 
+  private async handleListLookingPick(
+    ctx: Context,
+    text: string,
+    state: Extract<MenuState, { t: 'list_looking_pick' }>,
+  ) {
+    const idx = state.rowLabels.indexOf(text);
+    if (idx === -1) {
+      return;
+    }
+    const bookingId = state.bookingIds[idx];
+    if (!bookingId) {
+      return;
+    }
+    const chatId = await this.resolveActiveGroupChatId(ctx);
+    if (chatId == null) {
+      return;
+    }
+    const adjustCtx = await this.booking.getLookingAdjustContext({
+      bookingId,
+      telegramChatId: chatId,
+      telegramUserId: ctx.from!.id,
+    });
+    if (adjustCtx == null) {
+      await this.replyWithMainMenu(
+        ctx,
+        this.botT(this.kb().lang, 'book.listLookingEnableFailed'),
+      );
+      return;
+    }
+    const minTarget = Math.max(1, adjustCtx.joinedCount);
+    this.setMenuState(ctx, {
+      t: 'list_looking_players',
+      bookingId,
+      minTargetPartners: minTarget,
+      joinedCount: adjustCtx.joinedCount,
+    });
+    const prompt =
+      adjustCtx.joinedCount > 0
+        ? this.botT(this.kb().lang, 'book.askPlayersCountAdjust', {
+            joined: String(adjustCtx.joinedCount),
+            min: String(minTarget),
+          })
+        : this.botT(this.kb().lang, 'book.askPlayersCount');
+    await ctx.reply(prompt, this.playersCountPromptReplyMarkup());
+  }
+
+  private async handleListLookingPlayersCount(
+    ctx: Context,
+    text: string,
+    state: Extract<MenuState, { t: 'list_looking_players' }>,
+  ) {
+    const raw = text.trim();
+    const lang = this.kb().lang;
+    const markup = this.playersCountPromptReplyMarkup();
+    if (!/^\d+$/.test(raw)) {
+      await ctx.reply(this.botT(lang, 'book.playersCountNotInteger'), markup);
+      return;
+    }
+    const n = Number(raw);
+    const minTarget = state.minTargetPartners ?? 1;
+    const joinedCount = state.joinedCount ?? 0;
+    if (n < minTarget) {
+      await ctx.reply(
+        this.botT(lang, 'book.playersCountBelowMinimum', {
+          min: String(minTarget),
+          joined: String(joinedCount),
+        }),
+        markup,
+      );
+      return;
+    }
+    if (n > 50) {
+      await ctx.reply(this.botT(lang, 'book.playersCountAboveMaximum'), markup);
+      return;
+    }
+    const chatId = await this.resolveActiveGroupChatId(ctx);
+    if (chatId == null) {
+      return;
+    }
+    const lbl = this.kb();
+    try {
+      const result = await this.booking.setLookingPartnersTargetOnBooking({
+        bookingId: state.bookingId,
+        telegramChatId: chatId,
+        telegramUserId: ctx.from!.id,
+        targetPartners: n,
+      });
+      const a = formatInTimeZone(result.startTime, result.timeZone, 'HH:mm');
+      const z = formatInTimeZone(result.endTime, result.timeZone, 'HH:mm');
+      const day = formatInTimeZone(result.startTime, result.timeZone, 'dd.MM.yyyy');
+      const whoRaw = ctx.from?.username?.trim()
+        ? ctx.from.username.trim()
+        : (ctx.from?.first_name?.trim() ??
+          this.botT(lbl.lang, 'setup.adminPlayerFallback'));
+      const sportLabel = this.botT(lbl.lang, `sport.${result.sportKindCode}`);
+      const broadcastArgs = {
+        resource: result.resourceName,
+        day,
+        timeFrom: a,
+        timeTo: z,
+        tz: result.timeZone,
+        who: whoRaw,
+        sport: sportLabel,
+        n: String(result.remainingPlayers),
+      };
+      const groupBroadcast = result.searchClosed
+        ? this.botT(lbl.lang, 'book.groupBroadcastLookingClosed', broadcastArgs)
+        : result.joinedCount === 0
+          ? this.botT(lbl.lang, 'book.groupBroadcastLookingStarted', broadcastArgs)
+          : this.botT(lbl.lang, 'book.groupBroadcastLookingUpdated', broadcastArgs);
+      await this.broadcastToResourceGroups(ctx, result.resourceId, groupBroadcast);
+      const successKey = result.searchClosed
+        ? 'book.lookingClosedOnBooking'
+        : result.joinedCount === 0
+          ? 'book.lookingEnabledOnBooking'
+          : 'book.lookingUpdatedOnBooking';
+      await this.replyWithMainMenu(
+        ctx,
+        this.botT(lbl.lang, successKey, {
+          remaining: String(result.remainingPlayers),
+          target: String(result.targetPartners),
+          joined: String(result.joinedCount),
+          resource: result.resourceName,
+          timeFrom: a,
+          timeTo: z,
+        }),
+      );
+    } catch (e) {
+      if (e instanceof LookingTargetBelowJoinedError) {
+        await ctx.reply(
+          this.botT(lbl.lang, 'book.listLookingTargetBelowJoined', {
+            target: String(n),
+            joined: String(e.joinedCount),
+          }),
+          this.playersCountPromptReplyMarkup(),
+        );
+        return;
+      }
+      if (e instanceof BookingNotFoundError) {
+        await this.replyWithMainMenu(
+          ctx,
+          this.botT(lbl.lang, 'book.listLookingEnableFailed'),
+        );
+        return;
+      }
+      throw e;
+    }
+  }
+
   private async handleListCancel(
     ctx: Context,
     text: string,
@@ -2543,6 +2772,7 @@ export class BotUpdate {
   private async sendLookingSlotDm(
     ctx: Context,
     bookingId: string,
+    groupChatId: bigint,
     joinResult: {
       previousDmMessageId: number | null;
       organizer: {
@@ -2564,15 +2794,21 @@ export class BotUpdate {
       return;
     }
     const userId = ctx.from.id;
+    const dmLang = await this.langForDmUser(userId, groupChatId);
     const text = this.formatLookingSlotDmText({
       dm: joinResult.dm,
       yourPeopleCount: joinResult.yourPeopleCount,
       organizer: joinResult.organizer,
     });
+    const leaveLabel = this.botT(dmLang, 'slotDm.leaveButton');
+    const leaveCb = buildLookingLeaveCallbackData(bookingId, userId);
     let sentId: number;
     try {
       const sent = await ctx.telegram.sendMessage(userId, text, {
         parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: leaveLabel, callback_data: leaveCb }]],
+        },
       });
       sentId = sent.message_id;
     } catch (e) {
@@ -2666,6 +2902,74 @@ export class BotUpdate {
     }
   }
 
+  private async notifyOrganizerOfLookingLeave(params: {
+    ctx: Context;
+    groupChatId: bigint;
+    leaveResult: {
+      organizer: {
+        telegramUserId: number;
+        storedDisplayName: string | null;
+      };
+      dm: {
+        resourceName: string;
+        address: string | null;
+        timeZone: string;
+        startTime: Date;
+        endTime: Date;
+        sportKindCode: SportKindCode;
+      };
+      withdrawnPeopleCount: number;
+    };
+    leaver: NonNullable<Context['from']>;
+  }) {
+    const { organizer, dm, withdrawnPeopleCount } = params.leaveResult;
+    if (params.leaver.id === organizer.telegramUserId) {
+      return;
+    }
+    const lang = await this.langForDmUser(
+      organizer.telegramUserId,
+      params.groupChatId,
+    );
+    const participantLabel = this.lookingJoinParticipantLabel(
+      lang,
+      params.leaver,
+    );
+    const participantLink = this.telegramUserHtmlLink(
+      params.leaver.id,
+      participantLabel,
+    );
+    const peopleThemLine =
+      withdrawnPeopleCount === 1
+        ? this.botT(lang, 'slotDm.peopleThemOne')
+        : this.botT(lang, 'slotDm.peopleThemMany', {
+            n: String(withdrawnPeopleCount),
+          });
+    const day = formatInTimeZone(dm.startTime, dm.timeZone, 'dd.MM.yyyy');
+    const a = formatInTimeZone(dm.startTime, dm.timeZone, 'HH:mm');
+    const z = formatInTimeZone(dm.endTime, dm.timeZone, 'HH:mm');
+    const addrRaw = dm.address?.trim()
+      ? dm.address.trim()
+      : this.botT(lang, 'slotDm.addressUnknown');
+    const when = `${day} ${a}–${z} (${dm.timeZone})`;
+    const text = this.botT(lang, 'slotDm.organizerLeaveNotify', {
+      participantLink,
+      peopleThemLine: this.escapeHtml(peopleThemLine),
+      resource: this.escapeHtml(dm.resourceName),
+      address: this.escapeHtml(addrRaw),
+      when: this.escapeHtml(when),
+      sport: this.escapeHtml(this.botT(lang, `sport.${dm.sportKindCode}`)),
+    });
+    try {
+      await params.ctx.telegram.sendMessage(organizer.telegramUserId, text, {
+        parse_mode: 'HTML',
+      });
+    } catch (e) {
+      this.logger.warn(
+        `organizer looking-leave DM failed user=${organizer.telegramUserId}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   private async handleFreeSlotJoin(
     ctx: Context,
     text: string,
@@ -2729,7 +3033,7 @@ export class BotUpdate {
       throw e;
     }
 
-    await this.sendLookingSlotDm(ctx, bookingId, joinResult);
+    await this.sendLookingSlotDm(ctx, bookingId, chatId, joinResult);
     await this.notifyOrganizerOfLookingJoin({
       ctx,
       groupChatId: chatId,
@@ -3455,7 +3759,12 @@ export class BotUpdate {
       const state = this.getMenuState(ctx);
 
       if (state.t === 'list') {
-        if (state.rowLabels.includes(text)) {
+        if (text === this.kb().menuListFindPlayers) {
+          const chatId = await this.resolveActiveGroupChatId(ctx);
+          if (chatId != null) {
+            await this.openListLookingPick(ctx, chatId);
+          }
+        } else if (state.rowLabels.includes(text)) {
           await this.handleListCancel(ctx, text, state);
         } else if (
           text === this.kb().menuBook ||
@@ -3470,6 +3779,44 @@ export class BotUpdate {
           } else {
             await this.handleMainMenuButtons(ctx, text);
           }
+        }
+        return;
+      }
+      if (state.t === 'list_looking_pick') {
+        if (state.rowLabels.includes(text)) {
+          await this.handleListLookingPick(ctx, text, state);
+        } else if (
+          text === this.kb().menuBook ||
+          text === this.kb().menuList ||
+          text === this.kb().menuGrid ||
+          text === this.kb().menuFreeSlots ||
+          text === this.kb().menuSwitchGroup
+        ) {
+          this.resetMenuState(ctx);
+          if (text === this.kb().menuSwitchGroup) {
+            await this.promptGroupPickerInDm(ctx, { force: true });
+          } else {
+            await this.handleMainMenuButtons(ctx, text);
+          }
+        }
+        return;
+      }
+      if (state.t === 'list_looking_players') {
+        if (
+          text === this.kb().menuBook ||
+          text === this.kb().menuList ||
+          text === this.kb().menuGrid ||
+          text === this.kb().menuFreeSlots ||
+          text === this.kb().menuSwitchGroup
+        ) {
+          this.resetMenuState(ctx);
+          if (text === this.kb().menuSwitchGroup) {
+            await this.promptGroupPickerInDm(ctx, { force: true });
+          } else {
+            await this.handleMainMenuButtons(ctx, text);
+          }
+        } else {
+          await this.handleListLookingPlayersCount(ctx, text, state);
         }
         return;
       }
@@ -7497,6 +7844,96 @@ export class BotUpdate {
         );
       }
     }
+  }
+
+  @Action(LOOKING_LEAVE_CALLBACK_RE)
+  async onLookingLeave(@Ctx() ctx: Context) {
+    const q = ctx.callbackQuery;
+    if (!q || !('data' in q) || typeof q.data !== 'string' || !ctx.from) {
+      return;
+    }
+    const parsed = parseLookingLeaveCallback(q.data);
+    if (!parsed) {
+      return;
+    }
+    const langEarly = await this.langForDmUser(ctx.from.id, null);
+    if (ctx.from.id !== parsed.telegramUserId) {
+      await ctx.answerCbQuery(this.botT(langEarly, 'callbacks.wrongUser'), {
+        show_alert: true,
+      });
+      return;
+    }
+    let leaveResult: Awaited<
+      ReturnType<BookingService['withdrawFromLookingSlot']>
+    >;
+    try {
+      leaveResult = await this.booking.withdrawFromLookingSlot({
+        bookingId: parsed.bookingId,
+        telegramUserId: ctx.from.id,
+      });
+    } catch (e) {
+      if (e instanceof BookingNotFoundError) {
+        await ctx.answerCbQuery(this.botT(langEarly, 'slotDm.leaveNotFound'), {
+          show_alert: true,
+        });
+        return;
+      }
+      throw e;
+    }
+    const lang = await this.langForDmUser(
+      ctx.from.id,
+      leaveResult.telegramChatId,
+    );
+    await ctx.answerCbQuery();
+    try {
+      await ctx.editMessageText(this.botT(lang, 'slotDm.leftDone'));
+    } catch {
+      /* not text / no rights */
+    }
+    await this.notifyOrganizerOfLookingLeave({
+      ctx,
+      groupChatId: leaveResult.telegramChatId,
+      leaveResult,
+      leaver: ctx.from,
+    });
+    const { dm, remainingPlayers, withdrawnPeopleCount } = leaveResult;
+    const day = formatInTimeZone(dm.startTime, dm.timeZone, 'dd.MM.yyyy');
+    const timeFrom = formatInTimeZone(dm.startTime, dm.timeZone, 'HH:mm');
+    const timeTo = formatInTimeZone(dm.endTime, dm.timeZone, 'HH:mm');
+    const whoRaw = ctx.from.username?.trim()
+      ? ctx.from.username.trim()
+      : (ctx.from.first_name?.trim() ??
+        this.botT(lang, 'setup.adminPlayerFallback'));
+    const lookingSuffix =
+      remainingPlayers > 0
+        ? this.botT(lang, 'book.groupBroadcastPlayerLeftStillNeed', {
+            n: String(remainingPlayers),
+          })
+        : '';
+    const leaveBroadcast = this.botT(lang, 'book.groupBroadcastPlayerLeft', {
+      resource: dm.resourceName,
+      day,
+      timeFrom,
+      timeTo,
+      tz: dm.timeZone,
+      who: whoRaw,
+      sport: this.botT(lang, `sport.${dm.sportKindCode}`),
+      looking: lookingSuffix,
+    });
+    await this.broadcastToResourceGroups(
+      ctx,
+      leaveResult.resourceId,
+      leaveBroadcast,
+    );
+    this.logger.log(
+      JSON.stringify({
+        action: 'looking_slot_left',
+        bookingId: parsed.bookingId,
+        telegramUserId: ctx.from.id,
+        withdrawnPeopleCount,
+        remainingPlayers,
+      }),
+    );
   }
 
   /** gr:userId или gr:userId:groupChatId (второй вариант — кнопка из ЛС). */
