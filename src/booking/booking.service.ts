@@ -943,6 +943,7 @@ export class BookingService {
     telegramChatId: bigint;
     telegramUserId: number;
   }): Promise<{
+    resourceId: string;
     remainingPlayers: number;
     yourPeopleCount: number;
     /** The previous private message regarding this reservation — delete it before posting a new message. */
@@ -1037,6 +1038,7 @@ export class BookingService {
       });
       const stored = full.userName?.trim() ?? '';
       return {
+        resourceId: full.resourceId,
         remainingPlayers,
         yourPeopleCount: part.peopleCount,
         previousDmMessageId,

@@ -679,10 +679,6 @@ export class BotUpdate {
     }
     const groupChatId = BigInt(ctx.chat.id);
     if (!(await this.ensureParticipantGroupOnboarding(ctx, groupChatId))) {
-      await this.replyTransientInGroup(
-        ctx,
-        this.botT(this.kb().lang, 'onboarding.needLanguageRulesGroup'),
-      );
       return;
     }
     this.activeGroupByUser.set(ctx.from.id, groupChatId);
@@ -694,18 +690,13 @@ export class BotUpdate {
     const text = ready
       ? this.botT(lang, 'menu.titleForGroup')
       : this.botT(lang, 'book.groupNotConfigured');
-    try {
-      await ctx.telegram.sendMessage(
-        ctx.from.id,
-        text,
-        await this.mainMenuReplyMarkupForDmUser(ctx.telegram, ctx.from.id),
-      );
-    } catch {
-      await this.replyTransientInGroup(
-        ctx,
-        this.botT(lang, 'dm.cannotWriteOpenStart'),
-      );
-    }
+    await this.notifyUserInDmOrTransientInGroup(
+      ctx,
+      ctx.from.id,
+      text,
+      this.botT(lang, 'dm.cannotWriteOpenStart'),
+      await this.mainMenuReplyMarkupForDmUser(ctx.telegram, ctx.from.id),
+    );
   }
 
   private async openDmFreeSlotsForGroupFromGroupContext(ctx: Context) {
@@ -714,48 +705,38 @@ export class BotUpdate {
     }
     const groupChatId = BigInt(ctx.chat.id);
     if (!(await this.ensureParticipantGroupOnboarding(ctx, groupChatId))) {
-      await this.replyTransientInGroup(
-        ctx,
-        this.botT(this.kb().lang, 'onboarding.needLanguageRulesGroup'),
-      );
       return;
     }
     this.activeGroupByUser.set(ctx.from.id, groupChatId);
     this.groupPickerLabelsByUser.delete(ctx.from.id);
     this.resetMenuStateForGroup(groupChatId, ctx.from.id);
     const lang = this.kb().lang;
+    const dmMenu = await this.mainMenuReplyMarkupForDmUser(
+      ctx.telegram,
+      ctx.from.id,
+    );
     const comm = await this.community.findByTelegramChatId(groupChatId);
     if (!comm) {
-      try {
-        await ctx.telegram.sendMessage(
-          ctx.from.id,
-          this.botT(lang, 'book.venueNotConfiguredShort'),
-          await this.mainMenuReplyMarkupForDmUser(ctx.telegram, ctx.from.id),
-        );
-      } catch {
-        await this.replyTransientInGroup(
-          ctx,
-          this.botT(lang, 'dm.cannotWriteOpenStartShort'),
-        );
-      }
+      await this.notifyUserInDmOrTransientInGroup(
+        ctx,
+        ctx.from.id,
+        this.botT(lang, 'book.venueNotConfiguredShort'),
+        this.botT(lang, 'dm.cannotWriteOpenStartShort'),
+        dmMenu,
+      );
       return;
     }
     const rows = await this.booking.listOpenLookingSlots({
       telegramChatId: groupChatId,
     });
     if (rows.length === 0) {
-      try {
-        await ctx.telegram.sendMessage(
-          ctx.from.id,
-          this.botT(lang, 'book.freeSlotsEmpty'),
-          await this.mainMenuReplyMarkupForDmUser(ctx.telegram, ctx.from.id),
-        );
-      } catch {
-        await this.replyTransientInGroup(
-          ctx,
-          this.botT(lang, 'dm.cannotWriteOpenStartShort'),
-        );
-      }
+      await this.notifyUserInDmOrTransientInGroup(
+        ctx,
+        ctx.from.id,
+        this.botT(lang, 'book.freeSlotsEmpty'),
+        this.botT(lang, 'dm.cannotWriteOpenStartShort'),
+        dmMenu,
+      );
       return;
     }
     const listItems = rows.map((r) => ({
@@ -774,18 +755,13 @@ export class BotUpdate {
       bookingIds: rows.map((r) => r.id),
       rowLabels,
     });
-    try {
-      await ctx.telegram.sendMessage(
-        ctx.from.id,
-        this.botT(lang, 'book.freeSlotsIntro'),
-        this.freeSlotsReplyMarkup(listItems),
-      );
-    } catch {
-      await this.replyTransientInGroup(
-        ctx,
-        this.botT(lang, 'dm.cannotWriteOpenStartShort'),
-      );
-    }
+    await this.notifyUserInDmOrTransientInGroup(
+      ctx,
+      ctx.from.id,
+      this.botT(lang, 'book.freeSlotsIntro'),
+      this.botT(lang, 'dm.cannotWriteOpenStartShort'),
+      this.freeSlotsReplyMarkup(listItems),
+    );
   }
 
   private async tryDeleteTriggerTextMessage(ctx: Context) {
@@ -919,6 +895,24 @@ export class BotUpdate {
     }
     const d = (err.response?.description ?? '').toLowerCase();
     return d.includes('initiate conversation');
+  }
+
+  /** Prefer DM; on 403 (no /start) post a short transient hint in the group. */
+  private async notifyUserInDmOrTransientInGroup(
+    ctx: Context,
+    userId: number,
+    dmText: string,
+    groupFallbackText: string,
+    extra?: Parameters<Context['telegram']['sendMessage']>[2],
+  ): Promise<void> {
+    try {
+      await ctx.telegram.sendMessage(userId, dmText, extra);
+    } catch (e) {
+      if (!this.isTelegramBotCannotInitiateDmError(e)) {
+        throw e;
+      }
+      await this.replyTransientInGroup(ctx, groupFallbackText);
+    }
   }
 
   private async resolveActiveGroupChatId(ctx: Context): Promise<bigint | null> {
@@ -2742,6 +2736,41 @@ export class BotUpdate {
       joinResult,
       joiner: ctx.from!,
     });
+
+    const { dm, remainingPlayers } = joinResult;
+    const joinLbl = this.kb();
+    const day = formatInTimeZone(dm.startTime, dm.timeZone, 'dd.MM.yyyy');
+    const timeFrom = formatInTimeZone(dm.startTime, dm.timeZone, 'HH:mm');
+    const timeTo = formatInTimeZone(dm.endTime, dm.timeZone, 'HH:mm');
+    const whoRaw = ctx.from?.username?.trim()
+      ? ctx.from.username.trim()
+      : (ctx.from?.first_name?.trim() ??
+        this.botT(joinLbl.lang, 'setup.adminPlayerFallback'));
+    const lookingSuffix =
+      remainingPlayers > 0
+        ? this.botT(joinLbl.lang, 'book.groupBroadcastPlayerJoinedStillNeed', {
+            n: String(remainingPlayers),
+          })
+        : '';
+    const joinBroadcast = this.botT(
+      joinLbl.lang,
+      'book.groupBroadcastPlayerJoined',
+      {
+        resource: dm.resourceName,
+        day,
+        timeFrom,
+        timeTo,
+        tz: dm.timeZone,
+        who: whoRaw,
+        sport: this.bookingSportLabel(dm.sportKindCode),
+        looking: lookingSuffix,
+      },
+    );
+    await this.broadcastToResourceGroups(
+      ctx,
+      joinResult.resourceId,
+      joinBroadcast,
+    );
 
     const rows = await this.booking.listOpenLookingSlots({
       telegramChatId: chatId,
@@ -6882,35 +6911,9 @@ export class BotUpdate {
       });
 
       if (!wasIn) {
-        const memberLbl = await this.labelsForUserInGroup(chatId, u.id);
         if (joinResult.pendingLanguageSelection) {
           try {
-            const where = await this.sendLanguagePickerMessages(
-              ctx.telegram,
-              chatId,
-              u.id,
-            );
-            if (where === 'dm') {
-              try {
-                const sent = await ctx.telegram.sendMessage(
-                  chat.id,
-                  this.botT(
-                    UI_LANGUAGE_PROMPT_NEUTRAL_LANG,
-                    'rules.chooseLanguageInDm',
-                  ),
-                );
-                this.deleteMessageLater(
-                  ctx.telegram,
-                  Number(chat.id),
-                  sent.message_id,
-                  5000,
-                );
-              } catch (e) {
-                this.logger.warn(
-                  `chat_member language ping: ${e instanceof Error ? e.message : String(e)}`,
-                );
-              }
-            }
+            await this.sendLanguagePickerMessages(ctx.telegram, chatId, u.id);
           } catch (e) {
             this.logger.warn(
               `chat_member language picker: ${e instanceof Error ? e.message : String(e)}`,
@@ -6925,7 +6928,7 @@ export class BotUpdate {
               telegramChatId: chatId,
               telegramUserId: u.id,
             });
-            const { usedDm } = await this.sendCommunityRulesMessages(
+            await this.sendCommunityRulesMessages(
               ctx.telegram,
               chatId,
               u.id,
@@ -6935,24 +6938,6 @@ export class BotUpdate {
                 rulesLocaleLanguageId: localeId,
               },
             );
-            if (usedDm) {
-              try {
-                const sent = await ctx.telegram.sendMessage(
-                  chat.id,
-                  this.botT(memberLbl.lang, 'rules.rulesSentToDmPing'),
-                );
-                this.deleteMessageLater(
-                  ctx.telegram,
-                  Number(chat.id),
-                  sent.message_id,
-                  5000,
-                );
-              } catch (e) {
-                this.logger.warn(
-                  `chat_member rules ping: ${e instanceof Error ? e.message : String(e)}`,
-                );
-              }
-            }
           } catch (e) {
             this.logger.warn(
               `chat_member rules: ${e instanceof Error ? e.message : String(e)}`,
@@ -6965,19 +6950,6 @@ export class BotUpdate {
         const ready = comm && comm.resources.length > 0;
         if (ready) {
           this.resetMenuStateForGroup(chatId, u.id);
-        }
-        const text = ready
-          ? this.botT(memberLbl.lang, 'groupWelcome.ready', {
-              chatBot: GROUP_REPLY_CHAT_BOT,
-            })
-          : this.botT(memberLbl.lang, 'groupWelcome.notReady');
-        try {
-          const kb = this.groupEntryReplyMarkupForChatUser();
-          await ctx.telegram.sendMessage(chat.id, text, kb);
-        } catch (e) {
-          this.logger.warn(
-            `chat_member welcome: ${e instanceof Error ? e.message : String(e)}`,
-          );
         }
       }
     }
@@ -7017,31 +6989,11 @@ export class BotUpdate {
     if (nu.status === 'administrator') {
       if (actorId != null && actorEffLang == null) {
         try {
-          const where = await this.sendLanguagePickerMessages(
+          await this.sendLanguagePickerMessages(
             ctx.telegram,
             groupChatId,
             actorId,
           );
-          if (where === 'dm') {
-            try {
-              const sent = await ctx.reply(
-                this.botT(
-                  UI_LANGUAGE_PROMPT_NEUTRAL_LANG,
-                  'rules.chooseLanguageInDm',
-                ),
-              );
-              this.deleteMessageLater(
-                ctx.telegram,
-                Number(ctx.chat.id),
-                sent.message_id,
-                5000,
-              );
-            } catch (e) {
-              this.logger.warn(
-                `my_chat_member language ping: ${e instanceof Error ? e.message : String(e)}`,
-              );
-            }
-          }
         } catch (e) {
           this.logger.warn(
             `my_chat_member language picker: ${e instanceof Error ? e.message : String(e)}`,
@@ -7049,20 +7001,28 @@ export class BotUpdate {
         }
         return;
       }
-      await ctx.reply(
-        this.botT(actorLbl.lang, 'group.botAddedIntro'),
-        this.groupEntryReplyMarkupForChatUser(),
-      );
+      if (actorId != null) {
+        await this.notifyUserInDmOrTransientInGroup(
+          ctx,
+          actorId,
+          this.botT(actorLbl.lang, 'group.botAddedIntro'),
+          this.botT(actorLbl.lang, 'group.botAddedIntro'),
+        );
+      }
       return;
     }
     const needsAdminLbl =
       actorId != null && actorEffLang != null
         ? actorLbl
         : this.L(UI_LANGUAGE_PROMPT_NEUTRAL_LANG);
-    await ctx.reply(
-      this.botT(needsAdminLbl.lang, 'group.botNeedsAdmin'),
-      this.groupEntryReplyMarkupForChatUser(),
-    );
+    if (actorId != null) {
+      await this.notifyUserInDmOrTransientInGroup(
+        ctx,
+        actorId,
+        this.botT(needsAdminLbl.lang, 'group.botNeedsAdmin'),
+        this.botT(needsAdminLbl.lang, 'group.botNeedsAdmin'),
+      );
+    }
   }
 
   @Start()
@@ -7159,24 +7119,15 @@ export class BotUpdate {
     }
 
     if (ctx.message && 'message_id' in ctx.message) {
-      this.deleteMessageLater(
-        ctx.telegram,
-        Number(ctx.chat.id),
-        ctx.message.message_id,
-        5000,
-      );
+      try {
+        await ctx.telegram.deleteMessage(
+          Number(ctx.chat.id),
+          ctx.message.message_id,
+        );
+      } catch {
+        /* no rights to delete user message */
+      }
     }
-
-    const startLbl = await this.labelsForUserInGroup(
-      BigInt(ctx.chat.id),
-      ctx.from.id,
-    );
-    await ctx.reply(
-      this.botT(startLbl.lang, 'group.startInGroupHint', {
-        chatBot: GROUP_REPLY_CHAT_BOT,
-      }),
-      this.groupEntryReplyMarkupForChatUser(),
-    );
   }
 
   @Command('setup')
@@ -7303,8 +7254,10 @@ export class BotUpdate {
         BigInt(ctx.chat.id),
         ctx.from.id,
       );
-      await this.replyTransientInGroup(
+      await this.notifyUserInDmOrTransientInGroup(
         ctx,
+        ctx.from.id,
+        this.botT(adminLbl.lang, 'group.setupAdminOnly'),
         this.botT(adminLbl.lang, 'group.setupAdminOnly'),
       );
       return;
@@ -7314,8 +7267,10 @@ export class BotUpdate {
         BigInt(ctx.chat.id),
         ctx.from.id,
       );
-      await this.replyTransientInGroup(
+      await this.notifyUserInDmOrTransientInGroup(
         ctx,
+        ctx.from.id,
+        this.botT(userLbl.lang, 'group.botNeedsAdmin'),
         this.botT(userLbl.lang, 'group.botNeedsAdmin'),
       );
       return;
@@ -7350,8 +7305,10 @@ export class BotUpdate {
       });
     } catch (e) {
       this.logger.warn(e instanceof Error ? e.message : 'setup DM failed');
-      await this.replyTransientInGroup(
+      await this.notifyUserInDmOrTransientInGroup(
         ctx,
+        ctx.from.id,
+        this.botT(titleLbl.lang, 'group.setupDmOpenFailed'),
         this.botT(titleLbl.lang, 'group.setupDmOpenFailed'),
       );
     }
@@ -7507,35 +7464,31 @@ export class BotUpdate {
         if (ready) {
           this.resetMenuStateForGroup(groupChatId, from.id);
         }
-        const lbl = this.kb();
-        const welcomeText = ready
-          ? this.botT(lbl.lang, 'groupWelcome.ready', {
-              chatBot: GROUP_REPLY_CHAT_BOT,
-            })
-          : this.botT(lbl.lang, 'groupWelcome.notReady');
-        try {
-          const kb = this.groupEntryReplyMarkupForChatUser();
-          await ctx.telegram.sendMessage(Number(groupChatId), welcomeText, kb);
-        } catch (e) {
-          this.logger.warn(
-            `after language pick, group welcome: ${e instanceof Error ? e.message : String(e)}`,
-          );
-        }
       });
     }
 
-    if (
-      isPrivateLangPick &&
-      languageId !== previousLang &&
-      !joinResult.pendingGroupRules
-    ) {
+    if (isPrivateLangPick && !joinResult.pendingGroupRules) {
       const from = ctx.from;
       const ui = resolveUiLang(languageId);
       this.activeGroupByUser.set(from.id, groupChatId);
+      const comm = await this.community.findByTelegramChatId(groupChatId);
+      const ready = comm && comm.resources.length > 0;
+      let dmText: string;
+      if (previousLang == null) {
+        dmText = ready
+          ? this.botT(ui, 'groupWelcome.ready', {
+              chatBot: GROUP_REPLY_CHAT_BOT,
+            })
+          : this.botT(ui, 'groupWelcome.notReady');
+      } else if (languageId !== previousLang) {
+        dmText = this.botT(ui, 'menu.languageChanged');
+      } else {
+        return;
+      }
       try {
         await ctx.telegram.sendMessage(
           from.id,
-          this.botT(ui, 'menu.languageChanged'),
+          dmText,
           await this.mainMenuReplyMarkupForDmUser(ctx.telegram, from.id),
         );
       } catch (e) {
@@ -7649,12 +7602,13 @@ export class BotUpdate {
 
   @Action('m')
   async onMenu(@Ctx() ctx: Context) {
-    await ctx.answerCbQuery();
     if (!ctx.from) {
+      await ctx.answerCbQuery();
       return;
     }
     if (!isGroupChat(ctx) || !ctx.chat) {
       const dmLang = await this.langForDmUser(ctx.from.id, null);
+      await ctx.answerCbQuery();
       await ctx.reply(this.botT(dmLang, 'menu.actionOnlyInGroup'));
       return;
     }
@@ -7662,9 +7616,8 @@ export class BotUpdate {
       BigInt(ctx.chat.id),
       ctx.from.id,
     );
-    await ctx.reply(
-      this.botT(menuLbl.lang, 'menu.openDmAndStart'),
-      await this.mainMenuReplyMarkup(ctx),
-    );
+    await ctx.answerCbQuery(this.botT(menuLbl.lang, 'menu.openDmAndStart'), {
+      show_alert: true,
+    });
   }
 }

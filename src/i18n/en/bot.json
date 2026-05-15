@@ -79,6 +79,8 @@
     "groupBroadcastNew": "New booking\n\nVenue: «{resource}»\nWhen: {day} {timeFrom}–{timeTo} ({tz})\nWho: {who}\nSport: {sport}{looking}",
     "groupBroadcastLooking": "\nLooking for partners: need {n} more.",
     "groupBroadcastCancelled": "Booking cancelled\n\nVenue: «{resource}»\nWhen: {day} {timeFrom}–{timeTo} ({tz})\nSport: {sport}\nCancelled by: {by}",
+    "groupBroadcastPlayerJoined": "Player joined the game\n\nVenue: «{resource}»\nWhen: {day} {timeFrom}–{timeTo} ({tz})\nWho joined: {who}\nSport: {sport}{looking}",
+    "groupBroadcastPlayerJoinedStillNeed": "\nStill looking for partners: need {n} more.",
     "cancelDmIntroAdmin": "Booking cancelled by a group admin.",
     "cancelDmIntroOrganizer": "Booking cancelled by the organizer.",
     "cancelDmVenue": "Venue: «{resource}»",
