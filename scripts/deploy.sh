@@ -11,6 +11,16 @@ DEPLOY_DIR="${DEPLOY_PATH:-/home/$USER/spot-booking-bot}"
 
 cd "$DEPLOY_DIR"
 
+# Default: bridge + published port (visible in "docker ps"). Set DOCKER_USE_HOST_NETWORK=1 if DATABASE_URL
+# must use 127.0.0.1/localhost for Postgres on this host (legacy; not recommended).
+DOCKER_NET_FLAGS_MIGRATE=(--add-host=host.docker.internal:host-gateway)
+DOCKER_NET_FLAGS_RUN=(--add-host=host.docker.internal:host-gateway -p "${PORT:-3000}:${PORT:-3000}")
+if [ "${DOCKER_USE_HOST_NETWORK:-}" = "1" ]; then
+  echo "ℹ️  DOCKER_USE_HOST_NETWORK=1: using host network (no -p in docker ps)"
+  DOCKER_NET_FLAGS_MIGRATE=(--network host)
+  DOCKER_NET_FLAGS_RUN=(--network host)
+fi
+
 # Load Docker image from tar file
 if [ -f "$IMAGE_FILE" ]; then
   echo "📦 Loading Docker image from $IMAGE_FILE..."
@@ -42,7 +52,7 @@ else
 fi
 
 docker run --rm \
-  --network host \
+  "${DOCKER_NET_FLAGS_MIGRATE[@]}" \
   --entrypoint /bin/sh \
   -e DATABASE_URL="$DATABASE_URL" \
   ${IMAGE_NAME}:${IMAGE_TAG} \
@@ -59,8 +69,8 @@ echo "✅ Migrations completed successfully"
 echo "🎬 Starting new container..."
 docker run -d \
   --name $CONTAINER_NAME \
-  --network host \
   --restart unless-stopped \
+  "${DOCKER_NET_FLAGS_RUN[@]}" \
   -e DATABASE_URL="$DATABASE_URL" \
   -e BOT_TOKEN="$BOT_TOKEN" \
   -e PORT="${PORT:-3000}" \
