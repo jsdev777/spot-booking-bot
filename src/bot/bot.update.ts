@@ -909,6 +909,18 @@ export class BotUpdate {
     );
   }
 
+  /** User has not opened a private chat with the bot (no /start in DM yet). */
+  private isTelegramBotCannotInitiateDmError(error: unknown): boolean {
+    const err = error as {
+      response?: { error_code?: number; description?: string };
+    };
+    if (err.response?.error_code !== 403) {
+      return false;
+    }
+    const d = (err.response?.description ?? '').toLowerCase();
+    return d.includes('initiate conversation');
+  }
+
   private async resolveActiveGroupChatId(ctx: Context): Promise<bigint | null> {
     if (isGroupChat(ctx) && ctx.chat?.id) {
       return BigInt(ctx.chat.id);
@@ -6626,7 +6638,7 @@ export class BotUpdate {
   }
 
   /**
-   * Language picker in DM first; fallback sends the same inline keyboard in the group.
+   * Language picker only in DM. If Telegram blocks first contact, posts a hint in the group with an open-bot link.
    */
   /** First-time DM /start: pick global default UI language (stored on TelegramUser). */
   private async sendUserDefaultLanguagePicker(
@@ -6672,11 +6684,15 @@ export class BotUpdate {
     );
   }
 
+  /**
+   * Sends the language inline keyboard in DM. If Telegram forbids first contact,
+   * posts a short hint in the group with an "open bot" link (no language buttons in group).
+   */
   private async sendLanguagePickerMessages(
     telegram: Context['telegram'],
     groupChatId: bigint,
     targetUserId: number,
-  ): Promise<void> {
+  ): Promise<'dm' | 'group_hint'> {
     const langs = await this.telegramMembers.listLanguagesForPicker();
     const groupStr = groupChatId.toString();
     const rows = langs.map((l) => [
@@ -6697,7 +6713,36 @@ export class BotUpdate {
     const extra = {
       reply_markup: { inline_keyboard: rows },
     };
-    await telegram.sendMessage(targetUserId, intro, extra);
+    try {
+      await telegram.sendMessage(targetUserId, intro, extra);
+      return 'dm';
+    } catch (e) {
+      if (!this.isTelegramBotCannotInitiateDmError(e)) {
+        throw e;
+      }
+      this.logger.warn(
+        `language picker: DM blocked (user must open bot first); user=${targetUserId} group=${groupChatId}`,
+      );
+      const me = await telegram.getMe();
+      if (!me.username) {
+        throw e;
+      }
+      const neutral = UI_LANGUAGE_PROMPT_NEUTRAL_LANG;
+      const hint = `${this.botT(neutral, 'rules.chooseLanguageInDm')}\n\n${this.botT(neutral, 'menu.openDmAndStart')}`;
+      await telegram.sendMessage(Number(groupChatId), hint, {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: this.botT(neutral, 'rules.openBotButton'),
+                url: `https://t.me/${me.username}`,
+              },
+            ],
+          ],
+        },
+      });
+      return 'group_hint';
+    }
   }
 
   /**
@@ -6840,25 +6885,31 @@ export class BotUpdate {
         const memberLbl = await this.labelsForUserInGroup(chatId, u.id);
         if (joinResult.pendingLanguageSelection) {
           try {
-            await this.sendLanguagePickerMessages(ctx.telegram, chatId, u.id);
-            try {
-              const sent = await ctx.telegram.sendMessage(
-                chat.id,
-                this.botT(
-                  UI_LANGUAGE_PROMPT_NEUTRAL_LANG,
-                  'rules.chooseLanguageInDm',
-                ),
-              );
-              this.deleteMessageLater(
-                ctx.telegram,
-                Number(chat.id),
-                sent.message_id,
-                5000,
-              );
-            } catch (e) {
-              this.logger.warn(
-                `chat_member language ping: ${e instanceof Error ? e.message : String(e)}`,
-              );
+            const where = await this.sendLanguagePickerMessages(
+              ctx.telegram,
+              chatId,
+              u.id,
+            );
+            if (where === 'dm') {
+              try {
+                const sent = await ctx.telegram.sendMessage(
+                  chat.id,
+                  this.botT(
+                    UI_LANGUAGE_PROMPT_NEUTRAL_LANG,
+                    'rules.chooseLanguageInDm',
+                  ),
+                );
+                this.deleteMessageLater(
+                  ctx.telegram,
+                  Number(chat.id),
+                  sent.message_id,
+                  5000,
+                );
+              } catch (e) {
+                this.logger.warn(
+                  `chat_member language ping: ${e instanceof Error ? e.message : String(e)}`,
+                );
+              }
             }
           } catch (e) {
             this.logger.warn(
@@ -6966,28 +7017,30 @@ export class BotUpdate {
     if (nu.status === 'administrator') {
       if (actorId != null && actorEffLang == null) {
         try {
-          await this.sendLanguagePickerMessages(
+          const where = await this.sendLanguagePickerMessages(
             ctx.telegram,
             groupChatId,
             actorId,
           );
-          try {
-            const sent = await ctx.reply(
-              this.botT(
-                UI_LANGUAGE_PROMPT_NEUTRAL_LANG,
-                'rules.chooseLanguageInDm',
-              ),
-            );
-            this.deleteMessageLater(
-              ctx.telegram,
-              Number(ctx.chat.id),
-              sent.message_id,
-              5000,
-            );
-          } catch (e) {
-            this.logger.warn(
-              `my_chat_member language ping: ${e instanceof Error ? e.message : String(e)}`,
-            );
+          if (where === 'dm') {
+            try {
+              const sent = await ctx.reply(
+                this.botT(
+                  UI_LANGUAGE_PROMPT_NEUTRAL_LANG,
+                  'rules.chooseLanguageInDm',
+                ),
+              );
+              this.deleteMessageLater(
+                ctx.telegram,
+                Number(ctx.chat.id),
+                sent.message_id,
+                5000,
+              );
+            } catch (e) {
+              this.logger.warn(
+                `my_chat_member language ping: ${e instanceof Error ? e.message : String(e)}`,
+              );
+            }
           }
         } catch (e) {
           this.logger.warn(
