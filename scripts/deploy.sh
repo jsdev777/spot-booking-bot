@@ -11,16 +11,6 @@ DEPLOY_DIR="${DEPLOY_PATH:-/home/$USER/spot-booking-bot}"
 
 cd "$DEPLOY_DIR"
 
-# Default: bridge + published port (visible in "docker ps"). Set DOCKER_USE_HOST_NETWORK=1 if DATABASE_URL
-# must use 127.0.0.1/localhost for Postgres on this host (legacy; not recommended).
-DOCKER_NET_FLAGS_MIGRATE=(--add-host=host.docker.internal:host-gateway)
-DOCKER_NET_FLAGS_RUN=(--add-host=host.docker.internal:host-gateway -p "${PORT:-3000}:${PORT:-3000}")
-if [ "${DOCKER_USE_HOST_NETWORK:-}" = "1" ]; then
-  echo "ℹ️  DOCKER_USE_HOST_NETWORK=1: using host network (no -p in docker ps)"
-  DOCKER_NET_FLAGS_MIGRATE=(--network host)
-  DOCKER_NET_FLAGS_RUN=(--network host)
-fi
-
 # Load Docker image from tar file
 if [ -f "$IMAGE_FILE" ]; then
   echo "📦 Loading Docker image from $IMAGE_FILE..."
@@ -49,6 +39,28 @@ if [ -z "$DATABASE_URL" ]; then
   exit 1
 else
   echo "✅ DATABASE_URL is set (length: ${#DATABASE_URL} chars)"
+fi
+
+# Bridge + -p shows ports in "docker ps". Loopback in DATABASE_URL means Postgres on this host — from a bridge
+# container "localhost" is wrong; use host network unless forced off (DOCKER_USE_HOST_NETWORK=0).
+DOCKER_NET_FLAGS_MIGRATE=(--add-host=host.docker.internal:host-gateway)
+DOCKER_NET_FLAGS_RUN=(--add-host=host.docker.internal:host-gateway -p "${PORT:-3000}:${PORT:-3000}")
+use_host_net=false
+if [ "${DOCKER_USE_HOST_NETWORK:-}" = "1" ]; then
+  use_host_net=true
+elif [ "${DOCKER_USE_HOST_NETWORK:-}" = "0" ]; then
+  use_host_net=false
+else
+  case "$DATABASE_URL" in
+    *"@localhost:"*|*"@localhost/"*|*"@127.0.0.1:"*|*"@127.0.0.1/"*)
+      use_host_net=true
+      ;;
+  esac
+fi
+if [ "$use_host_net" = true ]; then
+  echo "ℹ️  Using Docker host network (DATABASE_URL uses localhost / 127.0.0.1 on this server)"
+  DOCKER_NET_FLAGS_MIGRATE=(--network host)
+  DOCKER_NET_FLAGS_RUN=(--network host)
 fi
 
 docker run --rm \
