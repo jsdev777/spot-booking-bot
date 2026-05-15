@@ -79,6 +79,8 @@
     "groupBroadcastNew": "Нове бронювання\n\nМайданчик: «{resource}»\nКоли: {day} {timeFrom}–{timeTo} ({tz})\nХто: {who}\nСпорт: {sport}{looking}",
     "groupBroadcastLooking": "\nПошук партнерів: потрібно ще {n} чол.",
     "groupBroadcastCancelled": "Бронювання скасовано\n\nМайданчик: «{resource}»\nКоли: {day} {timeFrom}–{timeTo} ({tz})\nСпорт: {sport}\nСкасував: {by}",
+    "groupBroadcastPlayerJoined": "Гравця додано до гри\n\nМайданчик: «{resource}»\nКоли: {day} {timeFrom}–{timeTo} ({tz})\nХто приєднався: {who}\nСпорт: {sport}{looking}",
+    "groupBroadcastPlayerJoinedStillNeed": "\nЩе шукають партнерів: потрібно ще {n} чол.",
     "cancelDmIntroAdmin": "Бронювання скасовано адміністратором групи.",
     "cancelDmIntroOrganizer": "Бронювання скасовано організатором.",
     "cancelDmVenue": "Майданчик: «{resource}»",
