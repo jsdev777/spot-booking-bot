@@ -79,6 +79,7 @@ jobs:
           export BOT_TOKEN='${{ secrets.BOT_TOKEN }}'
           export PORT='${{ secrets.PORT || 3000 }}'
           export DEPLOY_PATH='${{ secrets.DEPLOY_PATH }}'
+          export DOCKER_USE_HOST_NETWORK='${{ secrets.DOCKER_USE_HOST_NETWORK }}'
           ENVEOF
 
       - name: Transfer environment file

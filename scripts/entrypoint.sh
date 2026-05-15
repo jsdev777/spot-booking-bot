@@ -3,12 +3,9 @@ set -e
 
 echo "🚀 Starting application entrypoint..."
 
-# Wait for PostgreSQL to be ready
+# Wait until the database from DATABASE_URL accepts connections (works for Docker service names, remote hosts, etc.)
 echo "⏳ Waiting for PostgreSQL..."
-until pg_isready -h "${DB_HOST:-localhost}" -p "${DB_PORT:-5432}" -U "${DB_USER:-user}" 2>/dev/null; do
-  echo "PostgreSQL is unavailable - sleeping"
-  sleep 2
-done
+node ./scripts/wait-for-db.js
 
 echo "✅ PostgreSQL is ready!"
 

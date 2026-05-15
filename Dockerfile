@@ -18,8 +18,6 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache postgresql-client
-
 COPY package*.json ./
 COPY prisma ./prisma/
 COPY prisma.config.ts ./
@@ -28,6 +26,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
 COPY scripts/entrypoint.sh ./scripts/entrypoint.sh
+COPY scripts/wait-for-db.js ./scripts/wait-for-db.js
 
 RUN chmod +x ./scripts/entrypoint.sh
 
