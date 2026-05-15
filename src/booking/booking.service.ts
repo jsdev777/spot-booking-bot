@@ -19,6 +19,7 @@ import {
 import {
   BookingNotFoundError,
   BookingWindowClosedError,
+  LookingTargetBelowJoinedError,
   SlotInPastError,
   SlotTakenError,
   UserDailyBookingLimitExceededError,
@@ -877,6 +878,168 @@ export class BookingService {
     });
   }
 
+  /** Future organizer bookings where partner search can be enabled or the target count changed. */
+  async listMyBookingsEligibleToAdjustLooking(params: {
+    telegramChatId: bigint;
+    telegramUserId: number;
+    now?: Date;
+  }) {
+    const now = params.now ?? new Date();
+    return this.prisma.booking.findMany({
+      where: {
+        status: { in: OCCUPIED_BOOKING_STATUSES },
+        userId: BigInt(params.telegramUserId),
+        startTime: { gt: now },
+        resource: {
+          communityResources: {
+            some: { community: { telegramChatId: params.telegramChatId } },
+          },
+        },
+      },
+      include: {
+        resource: true,
+        sportKind: true,
+        lookingParticipants: { select: { peopleCount: true } },
+      },
+      orderBy: { startTime: 'asc' },
+    });
+  }
+
+  /** How many partners already joined via player search (sum of people_count). */
+  sumLookingParticipantsJoined(
+    participants: { peopleCount: number }[],
+  ): number {
+    return participants.reduce((sum, p) => sum + p.peopleCount, 0);
+  }
+
+  /** Organizer context before entering a new partner target (for prompts). */
+  async getLookingAdjustContext(params: {
+    bookingId: string;
+    telegramChatId: bigint;
+    telegramUserId: number;
+    now?: Date;
+  }): Promise<{ joinedCount: number; remainingPlayers: number } | null> {
+    const now = params.now ?? new Date();
+    const booking = await this.prisma.booking.findFirst({
+      where: {
+        id: params.bookingId,
+        status: { in: OCCUPIED_BOOKING_STATUSES },
+        userId: BigInt(params.telegramUserId),
+        startTime: { gt: now },
+        resource: {
+          communityResources: {
+            some: { community: { telegramChatId: params.telegramChatId } },
+          },
+        },
+      },
+      include: { lookingParticipants: { select: { peopleCount: true } } },
+    });
+    if (!booking) {
+      return null;
+    }
+    const joinedCount = this.sumLookingParticipantsJoined(
+      booking.lookingParticipants,
+    );
+    return {
+      joinedCount,
+      remainingPlayers: Math.max(0, booking.requiredPlayers),
+    };
+  }
+
+  /**
+   * Set total partners needed for player search. `targetPartners` is the full roster size
+   * (already joined + still open). Remaining open slots = target − joined.
+   */
+  async setLookingPartnersTargetOnBooking(params: {
+    bookingId: string;
+    telegramChatId: bigint;
+    telegramUserId: number;
+    /** Total partners wanted (not “additional”). */
+    targetPartners: number;
+    now?: Date;
+  }): Promise<{
+    resourceId: string;
+    targetPartners: number;
+    joinedCount: number;
+    remainingPlayers: number;
+    searchClosed: boolean;
+    resourceName: string;
+    timeZone: string;
+    startTime: Date;
+    endTime: Date;
+    sportKindCode: SportKindCode;
+  }> {
+    if (params.targetPartners < 1 || params.targetPartners > 50) {
+      throw new Error('targetPartners must be 1–50');
+    }
+    const now = params.now ?? new Date();
+    const booking = await this.prisma.booking.findFirst({
+      where: {
+        id: params.bookingId,
+        status: { in: OCCUPIED_BOOKING_STATUSES },
+        userId: BigInt(params.telegramUserId),
+        startTime: { gt: now },
+        resource: {
+          communityResources: {
+            some: { community: { telegramChatId: params.telegramChatId } },
+          },
+        },
+      },
+      include: {
+        resource: true,
+        sportKind: true,
+        lookingParticipants: { select: { peopleCount: true } },
+      },
+    });
+    if (!booking) {
+      throw new BookingNotFoundError();
+    }
+    const joinedCount = this.sumLookingParticipantsJoined(
+      booking.lookingParticipants,
+    );
+    if (params.targetPartners < joinedCount) {
+      throw new LookingTargetBelowJoinedError(joinedCount);
+    }
+
+    const remainingPlayers = params.targetPartners - joinedCount;
+    const searchClosed = remainingPlayers === 0;
+
+    const updated = await this.prisma.booking.update({
+      where: { id: booking.id },
+      data: {
+        isLookingForPlayers: !searchClosed,
+        requiredPlayers: remainingPlayers,
+      },
+      include: { resource: true, sportKind: true },
+    });
+
+    this.logger.log(
+      JSON.stringify({
+        action: 'looking_target_set_on_booking',
+        bookingId: updated.id,
+        telegramChatId: params.telegramChatId.toString(),
+        telegramUserId: params.telegramUserId,
+        targetPartners: params.targetPartners,
+        joinedCount,
+        remainingPlayers,
+        searchClosed,
+      }),
+    );
+
+    return {
+      resourceId: updated.resourceId,
+      targetPartners: params.targetPartners,
+      joinedCount,
+      remainingPlayers,
+      searchClosed,
+      resourceName: updated.resource.name,
+      timeZone: updated.resource.timeZone,
+      startTime: updated.startTime,
+      endTime: updated.endTime,
+      sportKindCode: updated.sportKindCode,
+    };
+  }
+
   /** Усі ще дійсні броні (PENDING/ACTIVE) у чаті на сьогодні/завтра — локальна дата майданчику. */
   async listAllBookingsForChatDay(params: {
     telegramChatId: bigint;
@@ -1071,6 +1234,103 @@ export class BookingService {
         },
       },
       data: { lastDmMessageId: params.messageId },
+    });
+  }
+
+  /**
+   * Participant withdraws from a “player search” game: restore `required_players`,
+   * remove `booking_looking_participants` row, reopen search when needed.
+   */
+  async withdrawFromLookingSlot(params: {
+    bookingId: string;
+    telegramUserId: number;
+    now?: Date;
+  }): Promise<{
+    resourceId: string;
+    /** First linked group chat (for DM locale). */
+    telegramChatId: bigint;
+    remainingPlayers: number;
+    withdrawnPeopleCount: number;
+    organizer: {
+      telegramUserId: number;
+      storedDisplayName: string | null;
+    };
+    dm: {
+      resourceName: string;
+      address: string | null;
+      timeZone: string;
+      startTime: Date;
+      endTime: Date;
+      sportKindCode: SportKindCode;
+    };
+  }> {
+    const now = params.now ?? new Date();
+    return this.prisma.$transaction(async (tx) => {
+      const part = await tx.bookingLookingParticipant.findUnique({
+        where: {
+          bookingId_telegramUserId: {
+            bookingId: params.bookingId,
+            telegramUserId: BigInt(params.telegramUserId),
+          },
+        },
+        include: {
+          booking: {
+            include: {
+              resource: true,
+              sportKind: true,
+              communityResource: {
+                include: { community: true },
+              },
+            },
+          },
+        },
+      });
+      if (!part) {
+        throw new BookingNotFoundError();
+      }
+      const full = part.booking;
+      if (
+        !OCCUPIED_BOOKING_STATUSES.includes(full.status) ||
+        full.startTime <= now
+      ) {
+        throw new BookingNotFoundError();
+      }
+
+      const withdrawnPeopleCount = part.peopleCount;
+      await tx.bookingLookingParticipant.delete({
+        where: { id: part.id },
+      });
+
+      const updated = await tx.booking.update({
+        where: { id: full.id },
+        data: {
+          requiredPlayers: { increment: withdrawnPeopleCount },
+          isLookingForPlayers: true,
+        },
+        select: { requiredPlayers: true },
+      });
+      const remainingPlayers = Math.max(0, updated.requiredPlayers);
+
+      const chatId = full.communityResource.community.telegramChatId;
+      const stored = full.userName?.trim() ?? '';
+      return {
+        resourceId: full.resourceId,
+        telegramChatId: chatId,
+        remainingPlayers,
+        withdrawnPeopleCount,
+        organizer: {
+          telegramUserId: Number(full.userId),
+          storedDisplayName: stored.length > 0 ? stored : null,
+        },
+        dm: {
+          resourceName: full.resource.name,
+          address: full.resource.address,
+          timeZone: full.resource.timeZone,
+          startTime: full.startTime,
+          endTime: full.endTime,
+          sportKindCode: full.sportKindCode,
+        },
+      };
     });
   }
 
