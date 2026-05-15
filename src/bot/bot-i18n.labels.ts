@@ -79,6 +79,7 @@ export function createBotLabels(
     duration90m: t('duration.m90'),
     duration2h: t('duration.h120'),
     listCancelSuffix: t('list.cancelSuffix'),
+    listCancelConfirmYes: t('list.cancelConfirmYes'),
     freeSlotMorePlayers: t('freeSlot.morePlayers'),
     resourceInactiveMark: t('resource.inactiveMark'),
   };

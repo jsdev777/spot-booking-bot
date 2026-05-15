@@ -323,7 +323,9 @@
     "h120": "2 h"
   },
   "list": {
-    "cancelSuffix": " · Cancel?"
+    "cancelSuffix": " · Cancel?",
+    "cancelConfirmYes": "Yes, cancel",
+    "cancelConfirmPrompt": "Cancel this booking?\n\n{booking}\n\nTap «{confirm}» or «{back}»."
   },
   "freeSlot": {
     "morePlayers": "{n} more",

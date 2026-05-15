@@ -324,7 +324,9 @@
     "h120": "2 г"
   },
   "list": {
-    "cancelSuffix": " · Скасувати?"
+    "cancelSuffix": " · Скасувати?",
+    "cancelConfirmYes": "Так, скасувати",
+    "cancelConfirmPrompt": "Скасувати це бронювання?\n\n{booking}\n\nНатисніть «{confirm}» або «{back}»."
   },
   "freeSlot": {
     "morePlayers": "ще {n}",

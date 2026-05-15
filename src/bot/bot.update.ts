@@ -149,6 +149,7 @@ interface SetupDraft {
     | 'rules_edit'
     | 'all_bookings_pick_day'
     | 'all_bookings_list'
+    | 'all_bookings_cancel_confirm'
     | 'bw_tz'
     | 'bw_start'
     | 'bw_end'
@@ -170,6 +171,8 @@ interface SetupDraft {
   allBookingsDayOffsetDraft?: 0 | 1;
   allBookingsRowLabelsDraft?: string[];
   allBookingsBookingIdsDraft?: string[];
+  allBookingsCancelBookingIdDraft?: string;
+  allBookingsCancelLabelDraft?: string;
   recurringResourceIdDraft?: string;
   recurringSportKindCodeDraft?: SportKindCode;
   recurringWeekdayDraft?: number;
@@ -1089,6 +1092,16 @@ export class BotUpdate {
     return label;
   }
 
+  private listCancelConfirmReplyMarkup() {
+    const lbl = this.kb();
+    return Markup.keyboard([
+      [lbl.listCancelConfirmYes],
+      [lbl.menuBack, lbl.menuMain],
+    ])
+      .resize()
+      .persistent(true);
+  }
+
   private listBookingsReplyMarkup(
     items: {
       startTime: Date;
@@ -1606,6 +1619,14 @@ export class BotUpdate {
         return;
       }
       case 'list_looking_pick': {
+        const chatIdBack = await this.resolveActiveGroupChatId(ctx);
+        if (chatIdBack == null) {
+          return;
+        }
+        await this.showMyBookingsList(ctx, chatIdBack);
+        return;
+      }
+      case 'list_cancel_confirm': {
         const chatIdBack = await this.resolveActiveGroupChatId(ctx);
         if (chatIdBack == null) {
           return;
@@ -2658,7 +2679,7 @@ export class BotUpdate {
     }
   }
 
-  private async handleListCancel(
+  private async handleListCancelPick(
     ctx: Context,
     text: string,
     state: Extract<MenuState, { t: 'list' }>,
@@ -2671,31 +2692,77 @@ export class BotUpdate {
     if (!bookingId) {
       return;
     }
+    const bookingLabel = text.replace(
+      new RegExp(`${this.escapeRegex(this.kb().listCancelSuffix)}$`),
+      '',
+    );
+    this.setMenuState(ctx, {
+      t: 'list_cancel_confirm',
+      bookingId,
+      bookingLabel,
+    });
+    const lbl = this.kb();
+    await ctx.reply(
+      this.botT(lbl.lang, 'list.cancelConfirmPrompt', {
+        booking: bookingLabel,
+        confirm: lbl.listCancelConfirmYes,
+        back: lbl.menuBack,
+      }),
+      this.listCancelConfirmReplyMarkup(),
+    );
+  }
+
+  private escapeRegex(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  private async executeListCancel(
+    ctx: Context,
+    bookingId: string,
+  ): Promise<void> {
     const chatId = await this.resolveActiveGroupChatId(ctx);
     if (chatId == null) {
       return;
     }
-    try {
-      const notify = await this.booking.cancelBooking({
-        bookingId,
-        telegramChatId: chatId,
-        telegramUserId: ctx.from!.id,
-        noticeLocale: this.kb().lang,
-      });
-      await this.sendBookingCancellationAlerts(ctx, notify);
-      await this.replyWithMainMenu(
-        ctx,
-        this.botT(this.kb().lang, 'book.bookingCancelled'),
-      );
-    } catch (e) {
-      if (e instanceof BookingNotFoundError) {
-        await this.replyWithMainMenu(
-          ctx,
-          this.botT(this.kb().lang, 'book.listCancelNotFound'),
-        );
-        return;
+    const notify = await this.booking.cancelBooking({
+      bookingId,
+      telegramChatId: chatId,
+      telegramUserId: ctx.from!.id,
+      noticeLocale: this.kb().lang,
+    });
+    await this.sendBookingCancellationAlerts(ctx, notify);
+    await this.replyWithMainMenu(
+      ctx,
+      this.botT(this.kb().lang, 'book.bookingCancelled'),
+    );
+  }
+
+  private async handleListCancelConfirm(
+    ctx: Context,
+    text: string,
+    state: Extract<MenuState, { t: 'list_cancel_confirm' }>,
+  ) {
+    const lbl = this.kb();
+    if (text === lbl.listCancelConfirmYes) {
+      try {
+        await this.executeListCancel(ctx, state.bookingId);
+      } catch (e) {
+        if (e instanceof BookingNotFoundError) {
+          await this.replyWithMainMenu(
+            ctx,
+            this.botT(lbl.lang, 'book.listCancelNotFound'),
+          );
+          return;
+        }
+        throw e;
       }
-      throw e;
+      return;
+    }
+    if (text === lbl.menuBack) {
+      const chatId = await this.resolveActiveGroupChatId(ctx);
+      if (chatId != null) {
+        await this.showMyBookingsList(ctx, chatId);
+      }
     }
   }
 
@@ -3765,7 +3832,7 @@ export class BotUpdate {
             await this.openListLookingPick(ctx, chatId);
           }
         } else if (state.rowLabels.includes(text)) {
-          await this.handleListCancel(ctx, text, state);
+          await this.handleListCancelPick(ctx, text, state);
         } else if (
           text === this.kb().menuBook ||
           text === this.kb().menuList ||
@@ -3779,6 +3846,26 @@ export class BotUpdate {
           } else {
             await this.handleMainMenuButtons(ctx, text);
           }
+        }
+        return;
+      }
+      if (state.t === 'list_cancel_confirm') {
+        if (
+          text === this.kb().menuBook ||
+          text === this.kb().menuList ||
+          text === this.kb().menuGrid ||
+          text === this.kb().menuFreeSlots ||
+          text === this.kb().menuSwitchGroup ||
+          text === this.kb().menuMain
+        ) {
+          this.resetMenuState(ctx);
+          if (text === this.kb().menuSwitchGroup) {
+            await this.promptGroupPickerInDm(ctx, { force: true });
+          } else {
+            await this.handleMainMenuButtons(ctx, text);
+          }
+        } else {
+          await this.handleListCancelConfirm(ctx, text, state);
         }
         return;
       }
@@ -4095,6 +4182,119 @@ export class BotUpdate {
     rows.push([this.kb().menuBack, this.kb().menuMain]);
     rows.push([this.kb().setupCancel]);
     return Markup.keyboard(rows).resize().persistent(true);
+  }
+
+  private setupAdminAllBookingsCancelConfirmReplyMarkup() {
+    const lbl = this.kb();
+    return Markup.keyboard([
+      [lbl.listCancelConfirmYes],
+      [lbl.menuBack, lbl.menuMain],
+      [lbl.setupCancel],
+    ])
+      .resize()
+      .persistent(true);
+  }
+
+  private stripAdminAllBookingCancelSuffix(label: string): string {
+    const suffix = this.botT(this.kb().lang, 'setup.adminCancelSuffix');
+    if (label.endsWith(suffix)) {
+      return label.slice(0, -suffix.length);
+    }
+    return label;
+  }
+
+  private async sendSetupAllBookingsListDm(
+    ctx: Context,
+    targetGroupChatId: bigint,
+    dayOffset: 0 | 1,
+    headerMode: 'default' | 'after_cancel' = 'default',
+  ): Promise<{ rowLabels: string[]; bookingIds: string[] } | null> {
+    const rows = await this.booking.listAllBookingsForChatDay({
+      telegramChatId: targetGroupChatId,
+      dayOffset,
+    });
+    if (rows.length === 0) {
+      return null;
+    }
+    const items = rows.map((r) => ({
+      startTime: r.startTime,
+      endTime: r.endTime,
+      timeZone: r.resource.timeZone,
+      resourceName: r.resource.name,
+      sportKindCode: r.sportKindCode,
+      userName:
+        r.userName?.trim() ||
+        this.botT(this.kb().lang, 'setup.adminPlayerFallback'),
+    }));
+    const rowLabels = items.map((it) =>
+      this.buildAdminAllBookingButtonLabel(it),
+    );
+    const bookingIds = rows.map((r) => r.id);
+    const header =
+      headerMode === 'after_cancel'
+        ? dayOffset === 0
+          ? this.botT(this.kb().lang, 'setup.allBookingsCanceledHeaderToday')
+          : this.botT(this.kb().lang, 'setup.allBookingsCanceledHeaderTomorrow')
+        : dayOffset === 0
+          ? this.botT(this.kb().lang, 'setup.allBookingsHeaderToday')
+          : this.botT(this.kb().lang, 'setup.allBookingsHeaderTomorrow');
+    const listText = items
+      .map((it) =>
+        this.buildAdminAllBookingButtonLabel(it, {
+          includeCancelSuffix: false,
+        }),
+      )
+      .join('\n');
+    await this.sendSetupDm(
+      ctx,
+      `${header}\n\n${listText}`,
+      this.adminAllBookingsReplyMarkup(rowLabels),
+    );
+    return { rowLabels, bookingIds };
+  }
+
+  private async executeSetupAllBookingsCancel(
+    ctx: Context,
+    draft: SetupDraft,
+    sk: string,
+    targetGroupChatId: bigint,
+    bookingId: string,
+  ): Promise<void> {
+    const dayKeep = draft.allBookingsDayOffsetDraft ?? 0;
+    const notify = await this.booking.cancelBooking({
+      bookingId,
+      telegramChatId: targetGroupChatId,
+      telegramUserId: ctx.from!.id,
+      asGroupAdmin: true,
+      noticeLocale: this.kb().lang,
+    });
+    await this.sendBookingCancellationAlerts(ctx, notify);
+    delete draft.allBookingsCancelBookingIdDraft;
+    delete draft.allBookingsCancelLabelDraft;
+    const list = await this.sendSetupAllBookingsListDm(
+      ctx,
+      targetGroupChatId,
+      dayKeep,
+      'after_cancel',
+    );
+    if (list == null) {
+      draft.venuesSubstep = 'all_bookings_pick_day';
+      draft.allBookingsDayOffsetDraft = dayKeep;
+      delete draft.allBookingsRowLabelsDraft;
+      delete draft.allBookingsBookingIdsDraft;
+      this.setupDrafts.set(sk, draft);
+      await this.sendSetupDm(
+        ctx,
+        this.botT(this.kb().lang, 'setup.allBookingsCanceledPickDay'),
+        this.setupAllBookingsDayReplyMarkup(),
+      );
+      return;
+    }
+    draft.venuesSubstep = 'all_bookings_list';
+    draft.allBookingsDayOffsetDraft = dayKeep;
+    draft.allBookingsRowLabelsDraft = list.rowLabels;
+    draft.allBookingsBookingIdsDraft = list.bookingIds;
+    this.setupDrafts.set(sk, draft);
   }
 
   private setupRecurringPickResourceReplyMarkup(
@@ -5753,18 +5953,114 @@ export class BotUpdate {
         }
         if (
           draft.venuesSubstep === 'all_bookings_pick_day' ||
-          draft.venuesSubstep === 'all_bookings_list'
+          draft.venuesSubstep === 'all_bookings_list' ||
+          draft.venuesSubstep === 'all_bookings_cancel_confirm'
         ) {
           if (text === this.kb().menuMain || text === this.kb().menuBack) {
+            if (
+              draft.venuesSubstep === 'all_bookings_cancel_confirm' &&
+              text === this.kb().menuBack
+            ) {
+              delete draft.allBookingsCancelBookingIdDraft;
+              delete draft.allBookingsCancelLabelDraft;
+              const dayBack = draft.allBookingsDayOffsetDraft ?? 0;
+              const list = await this.sendSetupAllBookingsListDm(
+                ctx,
+                targetGroupChatId,
+                dayBack,
+              );
+              if (list == null) {
+                draft.venuesSubstep = 'all_bookings_pick_day';
+                draft.allBookingsDayOffsetDraft = dayBack;
+                delete draft.allBookingsRowLabelsDraft;
+                delete draft.allBookingsBookingIdsDraft;
+                this.setupDrafts.set(sk, draft);
+                await this.sendSetupDm(
+                  ctx,
+                  dayBack === 0
+                    ? this.botT(this.kb().lang, 'setup.allBookingsEmptyToday')
+                    : this.botT(
+                        this.kb().lang,
+                        'setup.allBookingsEmptyTomorrow',
+                      ),
+                  this.setupAllBookingsDayReplyMarkup(),
+                );
+                return;
+              }
+              draft.venuesSubstep = 'all_bookings_list';
+              draft.allBookingsRowLabelsDraft = list.rowLabels;
+              draft.allBookingsBookingIdsDraft = list.bookingIds;
+              this.setupDrafts.set(sk, draft);
+              return;
+            }
             draft.venuesSubstep = 'hub';
             delete draft.allBookingsDayOffsetDraft;
             delete draft.allBookingsRowLabelsDraft;
             delete draft.allBookingsBookingIdsDraft;
+            delete draft.allBookingsCancelBookingIdDraft;
+            delete draft.allBookingsCancelLabelDraft;
             this.setupDrafts.set(sk, draft);
             await this.sendSetupDm(
               ctx,
               this.setupHubPromptText(chatTitle),
               this.setupVenuesHubReplyMarkup(),
+            );
+            return;
+          }
+          if (draft.venuesSubstep === 'all_bookings_cancel_confirm') {
+            const lbl = this.kb();
+            const bookingId = draft.allBookingsCancelBookingIdDraft;
+            if (text === lbl.listCancelConfirmYes && bookingId) {
+              if (
+                !(await this.isAdminInContextGroup(ctx, targetGroupChatId))
+              ) {
+                await this.sendSetupDm(
+                  ctx,
+                  this.botT(
+                    lbl.lang,
+                    'setup.adminCancelBookingNoPermission',
+                  ),
+                );
+                return;
+              }
+              try {
+                await this.executeSetupAllBookingsCancel(
+                  ctx,
+                  draft,
+                  sk,
+                  targetGroupChatId,
+                  bookingId,
+                );
+              } catch (e) {
+                if (e instanceof BookingNotFoundError) {
+                  draft.venuesSubstep = 'all_bookings_pick_day';
+                  delete draft.allBookingsCancelBookingIdDraft;
+                  delete draft.allBookingsCancelLabelDraft;
+                  delete draft.allBookingsRowLabelsDraft;
+                  delete draft.allBookingsBookingIdsDraft;
+                  this.setupDrafts.set(sk, draft);
+                  await this.sendSetupDm(
+                    ctx,
+                    this.botT(lbl.lang, 'setup.allBookingsNotFoundRefresh', {
+                      today: lbl.menuDayToday,
+                      tomorrow: lbl.menuDayTomorrow,
+                    }),
+                    this.setupAllBookingsDayReplyMarkup(),
+                  );
+                  return;
+                }
+                throw e;
+              }
+              return;
+            }
+            await this.sendSetupDm(
+              ctx,
+              this.botT(lbl.lang, 'list.cancelConfirmPrompt', {
+                booking: draft.allBookingsCancelLabelDraft ?? '',
+                confirm: lbl.listCancelConfirmYes,
+                back: lbl.menuBack,
+              }),
+              this.setupAdminAllBookingsCancelConfirmReplyMarkup(),
             );
             return;
           }
@@ -5775,11 +6071,12 @@ export class BotUpdate {
             dayOffset = 1;
           }
           if (dayOffset !== undefined) {
-            const rows = await this.booking.listAllBookingsForChatDay({
-              telegramChatId: targetGroupChatId,
+            const list = await this.sendSetupAllBookingsListDm(
+              ctx,
+              targetGroupChatId,
               dayOffset,
-            });
-            if (rows.length === 0) {
+            );
+            if (list == null) {
               draft.venuesSubstep = 'all_bookings_pick_day';
               draft.allBookingsDayOffsetDraft = dayOffset;
               draft.allBookingsRowLabelsDraft = [];
@@ -5794,41 +6091,11 @@ export class BotUpdate {
               );
               return;
             }
-            const items = rows.map((r) => ({
-              startTime: r.startTime,
-              endTime: r.endTime,
-              timeZone: r.resource.timeZone,
-              resourceName: r.resource.name,
-              sportKindCode: r.sportKindCode,
-              userName:
-                r.userName?.trim() ||
-                this.botT(this.kb().lang, 'setup.adminPlayerFallback'),
-            }));
-            const rowLabels = items.map((it) =>
-              this.buildAdminAllBookingButtonLabel(it),
-            );
-            const bookingIds = rows.map((r) => r.id);
             draft.venuesSubstep = 'all_bookings_list';
             draft.allBookingsDayOffsetDraft = dayOffset;
-            draft.allBookingsRowLabelsDraft = rowLabels;
-            draft.allBookingsBookingIdsDraft = bookingIds;
+            draft.allBookingsRowLabelsDraft = list.rowLabels;
+            draft.allBookingsBookingIdsDraft = list.bookingIds;
             this.setupDrafts.set(sk, draft);
-            const header =
-              dayOffset === 0
-                ? this.botT(this.kb().lang, 'setup.allBookingsHeaderToday')
-                : this.botT(this.kb().lang, 'setup.allBookingsHeaderTomorrow');
-            const listText = items
-              .map((it) =>
-                this.buildAdminAllBookingButtonLabel(it, {
-                  includeCancelSuffix: false,
-                }),
-              )
-              .join('\n');
-            await this.sendSetupDm(
-              ctx,
-              `${header}\n\n${listText}`,
-              this.adminAllBookingsReplyMarkup(rowLabels),
-            );
             return;
           }
           if (draft.venuesSubstep === 'all_bookings_list') {
@@ -5850,96 +6117,24 @@ export class BotUpdate {
                   return;
                 }
                 const bookingId = ids[bIdx];
-                const dayKeep = draft.allBookingsDayOffsetDraft ?? 0;
-                try {
-                  const notify = await this.booking.cancelBooking({
-                    bookingId,
-                    telegramChatId: targetGroupChatId,
-                    telegramUserId: ctx.from.id,
-                    asGroupAdmin: true,
-                    noticeLocale: this.kb().lang,
-                  });
-                  await this.sendBookingCancellationAlerts(ctx, notify);
-                  const rowsAfter =
-                    await this.booking.listAllBookingsForChatDay({
-                      telegramChatId: targetGroupChatId,
-                      dayOffset: dayKeep,
-                    });
-                  if (rowsAfter.length === 0) {
-                    draft.venuesSubstep = 'all_bookings_pick_day';
-                    draft.allBookingsDayOffsetDraft = dayKeep;
-                    delete draft.allBookingsRowLabelsDraft;
-                    delete draft.allBookingsBookingIdsDraft;
-                    this.setupDrafts.set(sk, draft);
-                    await this.sendSetupDm(
-                      ctx,
-                      this.botT(
-                        this.kb().lang,
-                        'setup.allBookingsCanceledPickDay',
-                      ),
-                      this.setupAllBookingsDayReplyMarkup(),
-                    );
-                    return;
-                  }
-                  const itemsAfter = rowsAfter.map((r) => ({
-                    startTime: r.startTime,
-                    endTime: r.endTime,
-                    timeZone: r.resource.timeZone,
-                    resourceName: r.resource.name,
-                    sportKindCode: r.sportKindCode,
-                    userName:
-                      r.userName?.trim() ||
-                      this.botT(this.kb().lang, 'setup.adminPlayerFallback'),
-                  }));
-                  const rowLabelsAfter = itemsAfter.map((it) =>
-                    this.buildAdminAllBookingButtonLabel(it),
-                  );
-                  draft.venuesSubstep = 'all_bookings_list';
-                  draft.allBookingsDayOffsetDraft = dayKeep;
-                  draft.allBookingsRowLabelsDraft = rowLabelsAfter;
-                  draft.allBookingsBookingIdsDraft = rowsAfter.map((r) => r.id);
-                  this.setupDrafts.set(sk, draft);
-                  const headerAfter =
-                    dayKeep === 0
-                      ? this.botT(
-                          this.kb().lang,
-                          'setup.allBookingsCanceledHeaderToday',
-                        )
-                      : this.botT(
-                          this.kb().lang,
-                          'setup.allBookingsCanceledHeaderTomorrow',
-                        );
-                  const listTextAfter = itemsAfter
-                    .map((it) =>
-                      this.buildAdminAllBookingButtonLabel(it, {
-                        includeCancelSuffix: false,
-                      }),
-                    )
-                    .join('\n');
-                  await this.sendSetupDm(
-                    ctx,
-                    `${headerAfter}\n\n${listTextAfter}`,
-                    this.adminAllBookingsReplyMarkup(rowLabelsAfter),
-                  );
-                  return;
-                } catch (e) {
-                  if (e instanceof BookingNotFoundError) {
-                    await this.sendSetupDm(
-                      ctx,
-                      this.botT(
-                        this.kb().lang,
-                        'setup.allBookingsNotFoundRefresh',
-                        {
-                          today: this.kb().menuDayToday,
-                          tomorrow: this.kb().menuDayTomorrow,
-                        },
-                      ),
-                      this.setupAllBookingsDayReplyMarkup(),
-                    );
-                    return;
-                  }
-                  throw e;
-                }
+                const bookingLabel = this.stripAdminAllBookingCancelSuffix(
+                  text,
+                );
+                draft.venuesSubstep = 'all_bookings_cancel_confirm';
+                draft.allBookingsCancelBookingIdDraft = bookingId;
+                draft.allBookingsCancelLabelDraft = bookingLabel;
+                this.setupDrafts.set(sk, draft);
+                const lbl = this.kb();
+                await this.sendSetupDm(
+                  ctx,
+                  this.botT(lbl.lang, 'list.cancelConfirmPrompt', {
+                    booking: bookingLabel,
+                    confirm: lbl.listCancelConfirmYes,
+                    back: lbl.menuBack,
+                  }),
+                  this.setupAdminAllBookingsCancelConfirmReplyMarkup(),
+                );
+                return;
               }
             }
           }
@@ -6089,6 +6284,8 @@ export class BotUpdate {
             delete draft.allBookingsDayOffsetDraft;
             delete draft.allBookingsRowLabelsDraft;
             delete draft.allBookingsBookingIdsDraft;
+            delete draft.allBookingsCancelBookingIdDraft;
+            delete draft.allBookingsCancelLabelDraft;
             this.setupDrafts.set(sk, draft);
             await this.sendSetupDm(
               ctx,
